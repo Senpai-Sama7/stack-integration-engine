@@ -3,30 +3,30 @@
 **Production-ready orchestrator connecting 5 autonomous AI governance systems into a unified, human-supervised workflow engine.**
 
 ```
-┌─────────────────────────────────────────────────────┐
-│ PLATFORM (ai-agent-platform-ultimate)               │
-│ End-user interface, 8-layer AI agent                │
-└──────────────┬──────────────────────────────────────┘
-               ↑ Uses claims & decisions
-┌──────────────▼──────────────────────────────────────┐
-│ PROMETHEUS (prometheus-stack)                        │
-│ Verification gates, evidence, uncertainty           │
-└──────────────┬──────────────────────────────────────┘
-               ↑ Uses orchestration output
-┌──────────────▼──────────────────────────────────────┐
-│ SAGE (ADOS v3.0)                                     │
-│ Deterministic DAGs, event sourcing, cost mgmt        │
-└──────────────┬──────────────────────────────────────┘
-               ↑ Uses code intelligence
-┌──────────────▼──────────────────────────────────────┐
-│ NEXUS (nexus-mcp-server)                             │
-│ Code intelligence, symbols, impact analysis          │
-└──────────────┬──────────────────────────────────────┘
-               ↑ Uses project health
-┌──────────────▼──────────────────────────────────────┐
-│ SDLC (autonomous-sdlc-command-center)                │
-│ Project health, safety gates, audit trails           │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ PLATFORM (ai-agent-platform-ultimate)                         │
+│ End-user interface, 8-layer AI agent                          │
+└─────────────────────┬──────────────────────────────────────────┘
+                      ↑ Uses claims & decisions
+┌──────────────────────▼──────────────────────────────────────────┐
+│ PROMETHEUS (prometheus-stack)                                  │
+│ Verification gates, evidence, uncertainty                     │
+└─────────────────────┬──────────────────────────────────────────┘
+                      ↑ Uses orchestration output
+┌──────────────────────▼──────────────────────────────────────────┐
+│ SAGE (ADOS v3.0)                                               │
+│ Deterministic DAGs, event sourcing, cost mgmt                  │
+└─────────────────────┬──────────────────────────────────────────┘
+                      ↑ Uses code intelligence
+┌──────────────────────▼──────────────────────────────────────────┐
+│ NEXUS (nexus-mcp-server)                                        │
+│ Code intelligence, symbols, impact analysis                    │
+└─────────────────────┬──────────────────────────────────────────┘
+                      ↑ Uses project health
+┌──────────────────────▼──────────────────────────────────────────┐
+│ SDLC (autonomous-sdlc-command-center)                           │
+│ Project health, safety gates, audit trails                     │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
@@ -42,7 +42,7 @@ docker-compose -f deployment/docker-compose.full.yml up -d
 # Or local development
 pip install -e .
 python -m pytest tests/
-python stack_integration/cli/main.py workflow run --example security-audit
+python -m stack_integration.cli run --example security-audit
 ```
 
 ## Documentation
@@ -68,12 +68,6 @@ stack_integration/
 │   ├── prometheus_adapter.py # prometheus-stack integration
 │   └── platform_adapter.py  # ai-agent-platform-ultimate integration
 ├── workflows/               # High-level workflows
-│   ├── refactoring.py       # Refactor, rename, modernize
-│   ├── security_audit.py    # Secret scan + remediation
-│   ├── deployment.py        # Safe multi-service deployment
-│   ├── optimization.py      # Performance optimization
-│   ├── cross_service.py     # Cross-team coordination
-│   └── incident_response.py # Automated incident triage & fix
 ├── cli/                     # Command-line interface
 ├── api/                     # FastAPI HTTP gateway
 ├── mcp/                     # MCP server for IDE integration

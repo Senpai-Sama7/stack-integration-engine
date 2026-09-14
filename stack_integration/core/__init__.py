@@ -1,1 +1,1 @@
-"""Core orchestration logic."""
+"""Core orchestration."""

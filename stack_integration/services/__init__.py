@@ -1,1 +1,1 @@
-"""Service adapters for integration."""
+"""Service adapters."""

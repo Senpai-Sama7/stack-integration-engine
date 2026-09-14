@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  orchestrator:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      - LOG_LEVEL=INFO
+    volumes:
+      - .:/app
+    command: python -m uvicorn stack_integration.api.main:app --host 0.0.0.0 --port 8765
