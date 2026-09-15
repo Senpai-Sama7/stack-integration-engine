@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "EvidenceKind": {
+      "enum": [
+        "observed",
+        "inferred",
+        "proposed"
+      ],
+      "title": "EvidenceKind",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "author_id": {
+      "title": "Author Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "evidence_artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Artifact Ids",
+      "type": "array"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/EvidenceKind"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity",
+      "default": "info"
+    },
+    "statement": {
+      "minLength": 1,
+      "title": "Statement",
+      "type": "string"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "verified": {
+      "default": false,
+      "title": "Verified",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "author_id",
+    "kind",
+    "statement"
+  ],
+  "title": "Finding",
+  "type": "object"
+}

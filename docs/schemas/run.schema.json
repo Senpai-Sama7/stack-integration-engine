@@ -1,0 +1,206 @@
+{
+  "$defs": {
+    "Budget": {
+      "additionalProperties": false,
+      "properties": {
+        "max_modifying_tasks": {
+          "default": 2,
+          "minimum": 1,
+          "title": "Max Modifying Tasks",
+          "type": "integer"
+        },
+        "max_sessions": {
+          "default": 6,
+          "minimum": 1,
+          "title": "Max Sessions",
+          "type": "integer"
+        },
+        "max_verification_jobs": {
+          "default": 2,
+          "minimum": 1,
+          "title": "Max Verification Jobs",
+          "type": "integer"
+        },
+        "reported_cost_usd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reported Cost Usd"
+        },
+        "wall_time_seconds": {
+          "default": 7200,
+          "minimum": 1,
+          "title": "Wall Time Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "CheckDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Command",
+          "type": "array"
+        },
+        "environment": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Environment",
+          "type": "object"
+        },
+        "expects_tests": {
+          "default": false,
+          "title": "Expects Tests",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "command"
+      ],
+      "title": "CheckDefinition",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "planned",
+        "active",
+        "paused",
+        "awaiting_input",
+        "blocked",
+        "cancelling",
+        "cancelled",
+        "failed",
+        "completed"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "acceptance": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Acceptance",
+      "type": "array"
+    },
+    "acceptance_version": {
+      "default": 1,
+      "title": "Acceptance Version",
+      "type": "integer"
+    },
+    "base_revision": {
+      "title": "Base Revision",
+      "type": "string"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/CheckDefinition"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "objective": {
+      "minLength": 1,
+      "title": "Objective",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "revision": {
+      "default": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Scope Paths",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus",
+      "default": "planned"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "objective",
+    "scope_paths",
+    "base_revision",
+    "acceptance"
+  ],
+  "title": "Run",
+  "type": "object"
+}

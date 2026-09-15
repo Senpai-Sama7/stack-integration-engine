@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "Provider": {
+      "enum": [
+        "codex",
+        "claude"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "Verdict": {
+      "enum": [
+        "approve",
+        "request_changes",
+        "abstain"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "author_provider": {
+      "$ref": "#/$defs/Provider"
+    },
+    "candidate_hash": {
+      "title": "Candidate Hash",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "finding_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Finding Ids",
+      "type": "array"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "requirement_coverage": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requirement Coverage",
+      "type": "array"
+    },
+    "reviewer_id": {
+      "title": "Reviewer Id",
+      "type": "string"
+    },
+    "reviewer_provider": {
+      "$ref": "#/$defs/Provider"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "#/$defs/Verdict"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "task_id",
+    "reviewer_id",
+    "reviewer_provider",
+    "author_provider",
+    "candidate_hash",
+    "verdict"
+  ],
+  "title": "Review",
+  "type": "object"
+}

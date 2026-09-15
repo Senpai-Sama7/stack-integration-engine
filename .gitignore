@@ -21,6 +21,7 @@ wheels/
 *.egg
 
 # Virtual environments
+.venv/
 venv/
 ENV/
 env/
@@ -34,14 +35,17 @@ env/
 
 # Testing
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 .tox/
 
-# Environment
+# Environment and local controller state
 .env
 .env.local
 .env.*.local
+.stack-agent/
 
 # OS
 .DS_Store

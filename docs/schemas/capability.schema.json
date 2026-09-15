@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "CapabilityStatus": {
+      "enum": [
+        "supported",
+        "unsupported",
+        "untested",
+        "degraded"
+      ],
+      "title": "CapabilityStatus",
+      "type": "string"
+    },
+    "Provider": {
+      "enum": [
+        "codex",
+        "claude"
+      ],
+      "title": "Provider",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Detail"
+    },
+    "executable": {
+      "title": "Executable",
+      "type": "string"
+    },
+    "features": {
+      "additionalProperties": {
+        "$ref": "#/$defs/CapabilityStatus"
+      },
+      "title": "Features",
+      "type": "object"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "#/$defs/Provider"
+    },
+    "status": {
+      "$ref": "#/$defs/CapabilityStatus",
+      "default": "untested"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version"
+    }
+  },
+  "required": [
+    "id",
+    "provider",
+    "executable"
+  ],
+  "title": "Capability",
+  "type": "object"
+}

@@ -1,0 +1,85 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "actor_id": {
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "aggregate_id": {
+      "title": "Aggregate Id",
+      "type": "string"
+    },
+    "aggregate_revision": {
+      "minimum": 1,
+      "title": "Aggregate Revision",
+      "type": "integer"
+    },
+    "aggregate_type": {
+      "title": "Aggregate Type",
+      "type": "string"
+    },
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "event_type": {
+      "title": "Event Type",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_revision",
+    "actor_id",
+    "event_type"
+  ],
+  "title": "Event",
+  "type": "object"
+}

@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "ActorRole": {
+      "enum": [
+        "operator",
+        "controller",
+        "lead",
+        "builder",
+        "reviewer",
+        "verifier",
+        "integrator"
+      ],
+      "title": "ActorRole",
+      "type": "string"
+    },
+    "Provider": {
+      "enum": [
+        "codex",
+        "claude"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "SessionStatus": {
+      "enum": [
+        "registered",
+        "running",
+        "completed",
+        "failed",
+        "cancelled",
+        "unknown"
+      ],
+      "title": "SessionStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "grant_id": {
+      "title": "Grant Id",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "parent_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Id"
+    },
+    "process_id": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Process Id"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "#/$defs/Provider"
+    },
+    "provider_session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider Session Id"
+    },
+    "role": {
+      "$ref": "#/$defs/ActorRole"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/SessionStatus",
+      "default": "registered"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "provider",
+    "role",
+    "grant_id"
+  ],
+  "title": "Session",
+  "type": "object"
+}

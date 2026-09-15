@@ -1,0 +1,24 @@
+{
+  "objective": "Review the repository for one correctness risk and one missing test.",
+  "acceptance": [
+    "REQ-CORRECTNESS-EVIDENCE",
+    "REQ-TEST-RECOMMENDATION"
+  ],
+  "scope_paths": ["."],
+  "tasks": [
+    {
+      "id": "codex-correctness",
+      "description": "Inspect controller correctness and report one evidence-backed risk.",
+      "provider": "codex",
+      "side_effect": "read_only",
+      "acceptance_ids": ["REQ-CORRECTNESS-EVIDENCE"]
+    },
+    {
+      "id": "claude-tests",
+      "description": "Inspect test coverage and propose one high-value missing test.",
+      "provider": "claude",
+      "side_effect": "read_only",
+      "acceptance_ids": ["REQ-TEST-RECOMMENDATION"]
+    }
+  ]
+}

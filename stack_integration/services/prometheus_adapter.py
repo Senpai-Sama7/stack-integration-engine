@@ -1,43 +1,27 @@
-"""PROMETHEUS adapter."""
+"""PROMETHEUS boundary; unavailable operations fail closed."""
 
-import logging
-import httpx
-from typing import Any, Dict, List
+from typing import Any
 
 from stack_integration.core.types import ClaimBundle, GateDecision
-
-logger = logging.getLogger(__name__)
+from stack_integration.services import CapabilityUnavailableError
 
 
 class PrometheusAdapter:
-    """Adapter for PROMETHEUS service."""
+    def __init__(self, endpoint: str | None = None):
+        self.endpoint = endpoint
 
-    def __init__(self, base_url: str = "http://localhost:9000"):
-        self.base_url = base_url
-        self.client = httpx.AsyncClient(base_url=base_url, timeout=30.0)
-        self.logger = logger
-
-    async def evaluate_gates(self, bundle: ClaimBundle) -> Dict[str, Any]:
-        """Run ClaimBundle through gate stack."""
-        self.logger.info(f"Evaluating gates for bundle {bundle.id}")
-        bundle.decision = GateDecision.APPROVE
-        return {"decision": "approve", "reason": "All gates passed"}
+    async def evaluate_gates(self, bundle: ClaimBundle) -> dict[str, Any]:
+        raise CapabilityUnavailableError(
+            "PROMETHEUS gate transport is not configured; no approval was granted"
+        )
 
     async def record_decision(
-        self,
-        bundle: ClaimBundle,
-        decision: GateDecision,
-        reason: str = "",
-    ) -> Dict[str, Any]:
-        """Record a gate decision."""
-        self.logger.info(f"Recording decision {decision}")
-        return {"status": "decision_recorded"}
+        self, bundle: ClaimBundle, decision: GateDecision, reason: str = ""
+    ) -> dict[str, Any]:
+        raise CapabilityUnavailableError("PROMETHEUS decision transport is not configured")
 
-    async def audit_log(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get audit log."""
-        self.logger.info(f"Fetching audit log")
-        return [{"entry": "sample"}]
+    async def audit_log(self, limit: int = 100) -> list[dict[str, Any]]:
+        raise CapabilityUnavailableError("PROMETHEUS audit transport is not configured")
 
     async def close(self) -> None:
-        """Close client."""
-        await self.client.aclose()
+        return None

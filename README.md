@@ -1,104 +1,141 @@
 # Stack Integration Engine
 
-**Production-ready orchestrator connecting 5 autonomous AI governance systems into a unified, human-supervised workflow engine.**
+A local-first controller that lets authenticated Codex and Claude Code CLIs work as two
+bounded engineering teams. It persists task state, isolates modifying work in Git worktrees,
+requires opposite-provider review, runs checks independently, and records evidence before it
+integrates a candidate.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ PLATFORM (ai-agent-platform-ultimate)                         │
-│ End-user interface, 8-layer AI agent                          │
-└─────────────────────┬──────────────────────────────────────────┘
-                      ↑ Uses claims & decisions
-┌──────────────────────▼──────────────────────────────────────────┐
-│ PROMETHEUS (prometheus-stack)                                  │
-│ Verification gates, evidence, uncertainty                     │
-└─────────────────────┬──────────────────────────────────────────┘
-                      ↑ Uses orchestration output
-┌──────────────────────▼──────────────────────────────────────────┐
-│ SAGE (ADOS v3.0)                                               │
-│ Deterministic DAGs, event sourcing, cost mgmt                  │
-└─────────────────────┬──────────────────────────────────────────┘
-                      ↑ Uses code intelligence
-┌──────────────────────▼──────────────────────────────────────────┐
-│ NEXUS (nexus-mcp-server)                                        │
-│ Code intelligence, symbols, impact analysis                    │
-└─────────────────────┬──────────────────────────────────────────┘
-                      ↑ Uses project health
-┌──────────────────────▼──────────────────────────────────────────┐
-│ SDLC (autonomous-sdlc-command-center)                           │
-│ Project health, safety gates, audit trails                     │
-└───────────────────────────────────────────────────────────────┘
-```
+This repository previously returned synthetic success from every workflow step and service
+adapter. Version 0.2 fails closed: unavailable capabilities, malformed output, missing tests,
+stale leases, and unknown steps remain visibly unsuccessful.
 
-## Quick Start
+## What is implemented
+
+- Strict Pydantic contracts for projects, runs, tasks, leases, sessions, capabilities,
+  artifacts, findings, reviews, checks, decisions, authorizations, events, messages, and usage.
+- SQLite WAL storage with compare-and-swap revisions, atomic event outbox, backup, and message
+  deduplication.
+- DAG validation, atomic leases, heartbeat renewal, fencing tokens, and expired-writer
+  reconciliation.
+- Content-addressed, project-scoped artifacts with hash and size verification.
+- Role/path/side-effect policy enforcement plus signed, expiring bridge grants.
+- Real `codex exec --json --output-schema` and `claude --print --output-format json
+  --json-schema` adapters with explicit session IDs, timeouts, process-group cancellation, and
+  bounded output.
+- Managed parallel teams, reproducible context packets, opposite-provider review tied to exact
+  candidate hashes, revision rounds, and serialized integration.
+- Independent check execution that refuses to accept launch errors, truncation, nonzero exits,
+  or zero collected tests.
+- NEXUS integration over its observed MCP stdio protocol and SDLC integration over its JSON CLI.
+- Operator CLI, authenticated loopback status API, and local dashboard.
+
+Native model delegation is capability-detected but is not falsely equated with managed teams:
+Codex can use subagents in an admitted session, while Claude’s interactive agent-team feature is
+not available in `--print` mode. The reliable default is controller-managed parallel sessions.
+
+## Install
+
+Requirements: Python 3.11+, Git, and at least one supported provider CLI. For two-team operation,
+both `codex` and `claude` must already be authenticated through their supported login flows.
 
 ```bash
-# Clone this repo
-git clone https://github.com/Senpai-Sama7/stack-integration-engine.git
-cd stack-integration-engine
-
-# Full stack deployment
-docker-compose -f deployment/docker-compose.full.yml up -d
-
-# Or local development
-pip install -e .
-python -m pytest tests/
-python -m stack_integration.cli run --example security-audit
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev,api]'
+.venv/bin/stack-agent doctor --project .
 ```
+
+The controller never asks for or stores provider credentials. It uses the existing CLI login
+state. `doctor` records capability status without including account email, organization IDs, or
+tokens.
+
+## First local collaboration
+
+Plan the included two-provider read-only review:
+
+```bash
+.venv/bin/stack-agent plan examples/local-review.json --project .
+```
+
+The command returns a generated run ID. Execute and inspect it:
+
+```bash
+.venv/bin/stack-agent run RUN_ID
+.venv/bin/stack-agent status RUN_ID
+.venv/bin/stack-agent report RUN_ID --output run-report.json
+```
+
+For a modifying task, set `side_effect` to `worktree_write` and constrain `allowed_paths`. A
+successful worker narrative is insufficient: a changed candidate, opposite-provider review,
+requirement coverage, and independent project checks are all required.
+
+## Operator commands
+
+```text
+doctor                     probe providers, authentication, NEXUS, and SDLC
+project add PATH           register a Git repository without modifying it
+plan SPEC --project PATH   validate and persist a run/task DAG
+run RUN_ID                 execute, cross-review, verify, and integrate
+status RUN_ID              show authoritative task states
+inspect KIND ID            inspect a versioned record
+steer RUN_ID TEXT          add an operator instruction to subsequent context
+pause/resume/cancel        control new dispatch
+report RUN_ID              export evidence and explicit limitations
+backup DESTINATION         create a consistent SQLite backup
+schemas DIRECTORY          generate contract JSON Schemas
+serve                      run the token-protected loopback dashboard/API
+issue-grant                create a short-lived signed MCP bridge token
+```
+
+State defaults to `~/.local/state/stack-agent`; override it with `--state` or
+`STACK_AGENT_STATE`. The dashboard defaults to `127.0.0.1:8765`. Remote listeners are rejected by
+local policy.
+
+## Trust model
+
+The controller is the only database writer and authority source. Provider text is untrusted data.
+A reviewer cannot approve its own provider’s implementation. Reviews and checks are bound to one
+candidate hash and become stale when the candidate changes. Peer messages cannot grant push,
+deploy, deletion, privilege, policy, or scope authority.
+
+Git worktrees prevent accidental overlap, but they are not security sandboxes. Provider-native
+permission controls remain enabled. Push, deployment, destructive operations, and credential
+changes are outside the default grant set.
 
 ## Documentation
 
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** — 5-layer design, data flow, integration points
-- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Docker, Kubernetes, local setup
-- **[WORKFLOWS.md](docs/WORKFLOWS.md)** — 6 production workflows with examples
-- **[IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)** — 5-week rollout with tasks & milestones
-- **[API_REFERENCE.md](docs/API_REFERENCE.md)** — Service endpoints, schemas, error handling
+- [Architecture](docs/ARCHITECTURE.md)
+- [Operator guide](docs/OPERATOR_GUIDE.md)
+- [Contracts and state machine](docs/CONTRACTS.md)
+- [Security and threat model](docs/SECURITY.md)
+- [Recovery exercises](docs/RECOVERY.md)
+- [Compatibility matrix](docs/COMPATIBILITY.md)
+- [Implementation status](docs/IMPLEMENTATION_PLAN.md)
+- [Live provider probe](docs/evidence/live-provider-probe.json)
 
-## Core Services
+## Development verification
 
-```
-stack_integration/
-├── core/                    # Core orchestration logic
-│   ├── orchestrator.py      # Main workflow engine
-│   ├── event_bus.py         # Event dispatch & routing
-│   └── types.py             # Shared Pydantic models
-├── services/                # Adapter layers for each system
-│   ├── sdlc_adapter.py      # autonomous-sdlc-command-center integration
-│   ├── nexus_adapter.py     # nexus-mcp-server integration
-│   ├── sage_adapter.py      # sage (ADOS v3.0) integration
-│   ├── prometheus_adapter.py # prometheus-stack integration
-│   └── platform_adapter.py  # ai-agent-platform-ultimate integration
-├── workflows/               # High-level workflows
-├── cli/                     # Command-line interface
-├── api/                     # FastAPI HTTP gateway
-├── mcp/                     # MCP server for IDE integration
-└── observability/           # Logging, tracing, metrics
+```bash
+.venv/bin/ruff check stack_integration tests
+.venv/bin/ruff format --check stack_integration tests
+.venv/bin/mypy stack_integration
+.venv/bin/pytest --cov=stack_integration --cov-report=term-missing
 ```
 
-## Key Features
+The deterministic suite covers controller invariants without spending model quota. Live-provider
+checks are separate because provider availability and subscription quota are external conditions.
 
-✅ **End-to-end automation** — Task → SDLC scan → NEXUS analysis → SAGE execution → PROMETHEUS verification → PLATFORM approval  
-✅ **Human-in-loop** — Every high-risk decision requires human approval with evidence  
-✅ **Audit trail** — Immutable ClaimBundle log for compliance  
-✅ **Error recovery** — Saga compensation patterns for atomic rollback  
-✅ **IDE integration** — MCP server for Cline, Claude Desktop, Cursor  
-✅ **Enterprise ready** — 115+ tests, full observability, security hardened  
+## Container status dashboard
 
-## Performance
+The container runs only the controller status API; host CLI authentication is intentionally not
+copied into the image.
 
-| Workflow | Without Integration | With Integration | Improvement |
-|----------|-------------------|------------------|-------------|
-| Code review | 4 hours | 12 minutes | **20x faster** |
-| Refactoring | 8 hours | 15 minutes | **32x faster** |
-| Deployment | 30 min approval | 5 min approval | **6x faster** |
-| Production incidents | 2.3% rate | 0.3% rate | **8x safer** |
-| Audit coverage | 10% | 100% | **10x compliant** |
+```bash
+docker compose up --build
+docker compose exec orchestrator sh -c 'cat /var/lib/stack-agent/operator.token'
+```
 
-## Status
-
-- ✅ **Phase 1 (Weeks 1-2):** Service adapters, core orchestration
-- ⏳ **Phase 2 (Weeks 3):** Workflow implementations
-- ⏳ **Phase 3 (Week 4):** Full-stack testing & hardening
-- ⏳ **Phase 4 (Week 5):** Deployment, documentation, production rollout
+The host publishes only `127.0.0.1:8765`. Run model work through the host CLI unless you have built
+an independently reviewed credential/socket forwarding boundary.
 
 ## License
 
