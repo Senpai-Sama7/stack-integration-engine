@@ -1,5 +1,6 @@
 import subprocess
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,8 @@ from stack_integration.contracts.models import (
     ProviderResult,
     RunStatus,
     Task,
+    TaskStatus,
+    utc_now,
 )
 from stack_integration.controller import CollaborationController
 from stack_integration.providers.base import ProviderAdapter
@@ -234,6 +237,63 @@ async def test_dependent_modifying_task_sees_prerequisite_candidate(tmp_path: Pa
             }
             raise AssertionError(f"run ended {completed.status.value}: {diagnostics}")
         assert visibility.get("saw_task_a_file") is True
+    finally:
+        controller.close()
+
+
+@pytest.mark.parametrize(
+    ("required", "covered", "expected"),
+    [
+        (["REQ-1"], ["REQ-1"], True),
+        (["REQ-1"], ["REQ-1: satisfied because the diff adds the check"], True),
+        (["REQ-1"], ["REQ-1 - covered via the new test"], True),
+        (["REQ-1", "REQ-2"], ["REQ-1: ok"], False),
+        (["REQ-1"], ["REQ-10: unrelated requirement"], False),
+        (["REQ-1"], [], False),
+    ],
+)
+def test_coverage_satisfied_tolerates_annotated_review_output(required, covered, expected):
+    assert CollaborationController._coverage_satisfied(required, covered) is expected
+
+
+@pytest.mark.asyncio
+async def test_reconciling_task_awaits_operator_not_auto_requeued(tmp_path: Path):
+    """docs/RECOVERY.md requires operator judgment before a reconciled task
+    retries: 'Move to ready only when the old process cannot continue and
+    retry is safe; otherwise retain awaiting_input or failed.' The run loop
+    must never promote RECONCILING straight back to READY on its own."""
+    repo = tmp_path / "repo"
+    make_repo(repo)
+    settings = Settings.load(tmp_path / "state")
+    controller = CollaborationController(
+        settings,
+        providers={
+            Provider.CODEX: FakeAdapter(Provider.CODEX),
+            Provider.CLAUDE: FakeAdapter(Provider.CLAUDE),
+        },
+    )
+    try:
+        run = controller.create_run(repo, "Analyze fixture", ["REQ-1"])
+        controller.add_tasks(
+            run.id,
+            [{"id": "task-1", "description": "analyze", "provider": "codex"}],
+        )
+        lease = controller.scheduler.claim("task-1", "codex-builder-task-1")
+        controller.scheduler.transition(
+            "task-1",
+            TaskStatus.RUNNING,
+            actor_id="codex-builder-task-1",
+            fencing_token=lease.fencing_token,
+        )
+        lease.expires_at = utc_now() - timedelta(seconds=1)
+        controller.database._connection.execute(
+            "UPDATE leases SET expires_at=?,body=? WHERE task_id='task-1'",
+            (lease.expires_at.isoformat(), lease.model_dump_json()),
+        )
+        completed = await controller.execute_run(run.id)
+        task = controller.database.get("task", "task-1", Task)
+        assert task.status == TaskStatus.AWAITING_INPUT
+        assert completed.status != RunStatus.COMPLETED
     finally:
         controller.close()
 

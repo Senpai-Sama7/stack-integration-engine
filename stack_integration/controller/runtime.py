@@ -350,7 +350,9 @@ class CollaborationController:
         checks = await self._verify(submitted, run, workspace) if modifying else []
         required = self._check_definitions(workspace, run) if modifying else []
         current_task = self.database.get("task", task.id, Task)
-        coverage_complete = set(task.acceptance_ids) <= set(review.requirement_coverage)
+        coverage_complete = self._coverage_satisfied(
+            task.acceptance_ids, review.requirement_coverage
+        )
         candidate_drifted = modifying and (
             self.workspaces.candidate_hash(workspace) != submitted.candidate_hash
         )
@@ -466,7 +468,11 @@ class CollaborationController:
             "and every acceptance item.\n\n"
             f"Task: {task.description}\nAcceptance: {task.acceptance_ids}\n"
             f"Candidate hash: {task.candidate_hash}\nWorker report:\n{redact_text(worker_output)}\n"
-            f"Candidate diff:\n{redact_text(diff[:200000])}"
+            f"Candidate diff:\n{redact_text(diff[:200000])}\n\n"
+            "In requirement_coverage, list only the exact acceptance ID strings from "
+            "Acceptance above that this candidate satisfies — each entry must be one of "
+            "those IDs verbatim, with no explanation, prefix, or suffix appended. Put any "
+            "explanation in summary or findings instead."
         )
         result = await self.providers[reviewer_provider].execute(
             ProviderRequest(
@@ -625,6 +631,24 @@ class CollaborationController:
                 return f"provider structured output field {field} must be a string list"
         return None
 
+    @staticmethod
+    def _coverage_satisfied(required: list[str], covered: list[str]) -> bool:
+        """Whether every required acceptance ID is reported covered.
+
+        A conforming reviewer echoes IDs verbatim, but real models routinely
+        annotate them (``"REQ-1: satisfied because..."``), so an exact-string
+        match is too brittle against real provider output. Accept an entry
+        that starts with the ID followed by a word boundary as covering it.
+        """
+        for requirement in required:
+            if not any(
+                item == requirement or item[len(requirement) :][:1] in ("", ":", " ")
+                for item in covered
+                if item.startswith(requirement)
+            ):
+                return False
+        return True
+
     def _publish_failure(self, task: Task, actor_id: str, statement: str) -> None:
         self.policy.register_verified_grant(
             Grant(
@@ -711,13 +735,21 @@ class CollaborationController:
                     continue
                 retried = False
                 for task in tasks:
-                    if task.status not in {TaskStatus.CHANGES_REQUESTED, TaskStatus.RECONCILING}:
+                    if task.status == TaskStatus.RECONCILING:
+                        # Per docs/RECOVERY.md: a reconciled task must never be
+                        # requeued automatically. The old process's lease expired,
+                        # but nothing confirms it actually stopped running; only
+                        # an operator, after inspecting the worktree and side
+                        # effects, may judge retry safe.
+                        self.scheduler.transition(
+                            task.id, TaskStatus.AWAITING_INPUT, actor_id="controller"
+                        )
+                        continue
+                    if task.status != TaskStatus.CHANGES_REQUESTED:
                         continue
                     if task.attempt < 2:
                         self.scheduler.transition(task.id, TaskStatus.READY, actor_id="controller")
                         retried = True
-                    elif task.status == TaskStatus.RECONCILING:
-                        self.scheduler.transition(task.id, TaskStatus.FAILED, actor_id="controller")
                 if retried:
                     continue
                 break

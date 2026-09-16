@@ -150,7 +150,7 @@ ever touching account email, org IDs, or tokens.
 <summary><b>▶ Run your first two-provider review</b> — click to expand</summary>
 
 ```bash
-.venv/bin/stack-agent plan examples/local-review.json --project .
+.venv/bin/stack-agent plan examples/local-review.json .
 ```
 
 This prints a run ID. Execute it and inspect the result:
@@ -194,7 +194,7 @@ you've built and independently reviewed your own credential/socket forwarding bo
 ```text
 doctor                     probe providers, authentication, NEXUS, and SDLC
 project add PATH           register a Git repository without modifying it
-plan SPEC --project PATH   validate and persist a run/task DAG
+plan SPEC PROJECT          validate and persist a run/task DAG
 run RUN_ID                 execute, cross-review, verify, and integrate
 status RUN_ID              show authoritative task states
 inspect KIND ID            inspect a versioned record
