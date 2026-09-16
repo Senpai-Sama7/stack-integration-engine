@@ -94,9 +94,7 @@ class ProcessSupervisor:
             truncated=stdout_cut or stderr_cut,
         )
 
-    async def _read_bounded(
-        self, stream: asyncio.StreamReader
-    ) -> tuple[bytes, bool]:
+    async def _read_bounded(self, stream: asyncio.StreamReader) -> tuple[bytes, bool]:
         retained = bytearray()
         truncated = False
         while chunk := await stream.read(64 * 1024):
