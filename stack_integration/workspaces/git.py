@@ -141,29 +141,27 @@ class GitWorkspaceManager:
             digest.update((root / relative).read_bytes())
         return digest.hexdigest()
 
+    _COMMIT_IDENTITY = (
+        "-c",
+        "user.name=Stack Integration Controller",
+        "-c",
+        "user.email=stack-agent@localhost",
+    )
+
     def commit_candidate(self, workspace: str | Path, message: str) -> str:
         root = Path(workspace)
         self._git(root, "add", "--all")
         result = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=root, check=False)
         if result.returncode == 0:
             raise GitError("candidate contains no changes")
-        self._git(
-            root,
-            "-c",
-            "user.name=Stack Integration Controller",
-            "-c",
-            "user.email=stack-agent@localhost",
-            "commit",
-            "-m",
-            message,
-        )
+        self._git(root, *self._COMMIT_IDENTITY, "commit", "-m", message)
         return self.revision(root)
 
     def compose_task_base(self, workspace: str | Path, commits: list[str]) -> str:
         """Cherry-pick verified dependency commits onto a task's private worktree."""
         root = Path(workspace)
         for commit in commits:
-            self._git(root, "cherry-pick", commit)
+            self._git(root, *self._COMMIT_IDENTITY, "cherry-pick", commit)
         return self.revision(root)
 
     def integrate_commit(
@@ -176,7 +174,7 @@ class GitWorkspaceManager:
                 raise GitError(
                     f"integration base changed: expected {expected_head}, found {current}"
                 )
-            self._git(root, "cherry-pick", candidate_commit)
+            self._git(root, *self._COMMIT_IDENTITY, "cherry-pick", candidate_commit)
             return self.revision(root)
 
     def remove_task_workspace(

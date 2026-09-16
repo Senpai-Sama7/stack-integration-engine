@@ -9,9 +9,11 @@ from stack_integration.contracts.models import (
     Capability,
     CapabilityStatus,
     CheckDefinition,
+    Finding,
     Provider,
     ProviderResult,
     RunStatus,
+    Task,
 )
 from stack_integration.controller import CollaborationController
 from stack_integration.providers.base import ProviderAdapter
@@ -219,7 +221,18 @@ async def test_dependent_modifying_task_sees_prerequisite_candidate(tmp_path: Pa
             ],
         )
         completed = await controller.execute_run(run.id)
-        assert completed.status == RunStatus.COMPLETED
+        if completed.status != RunStatus.COMPLETED:
+            tasks = controller.database.list(
+                "task", Task, project_id=completed.project_id, run_id=completed.id
+            )
+            findings = controller.database.list(
+                "finding", Finding, project_id=completed.project_id, run_id=completed.id
+            )
+            diagnostics = {
+                "tasks": {t.id: t.status.value for t in tasks},
+                "findings": [f.statement for f in findings],
+            }
+            raise AssertionError(f"run ended {completed.status.value}: {diagnostics}")
         assert visibility.get("saw_task_a_file") is True
     finally:
         controller.close()
