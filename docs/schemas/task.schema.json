@@ -1,0 +1,197 @@
+{
+  "$defs": {
+    "ActorRole": {
+      "enum": [
+        "operator",
+        "controller",
+        "lead",
+        "builder",
+        "reviewer",
+        "verifier",
+        "integrator"
+      ],
+      "title": "ActorRole",
+      "type": "string"
+    },
+    "Provider": {
+      "enum": [
+        "codex",
+        "claude"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "SideEffect": {
+      "enum": [
+        "read_only",
+        "worktree_write",
+        "repository_write",
+        "process",
+        "network",
+        "push",
+        "deploy",
+        "delete",
+        "privilege"
+      ],
+      "title": "SideEffect",
+      "type": "string"
+    },
+    "TaskStatus": {
+      "enum": [
+        "proposed",
+        "ready",
+        "leased",
+        "running",
+        "submitted",
+        "reviewing",
+        "changes_requested",
+        "verified",
+        "integrated",
+        "reconciling",
+        "awaiting_input",
+        "blocked",
+        "failed",
+        "cancelled"
+      ],
+      "title": "TaskStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "acceptance_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Acceptance Ids",
+      "type": "array"
+    },
+    "allowed_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Paths",
+      "type": "array"
+    },
+    "attempt": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Attempt",
+      "type": "integer"
+    },
+    "candidate_commit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Candidate Commit"
+    },
+    "candidate_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Candidate Hash"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dependencies": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Dependencies",
+      "type": "array"
+    },
+    "description": {
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "owner_provider": {
+      "$ref": "#/$defs/Provider"
+    },
+    "owner_role": {
+      "$ref": "#/$defs/ActorRole",
+      "default": "builder"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "required_capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Capabilities",
+      "type": "array"
+    },
+    "revision": {
+      "default": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "side_effect": {
+      "$ref": "#/$defs/SideEffect",
+      "default": "read_only"
+    },
+    "status": {
+      "$ref": "#/$defs/TaskStatus",
+      "default": "proposed"
+    },
+    "workspace": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workspace"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "description",
+    "owner_provider"
+  ],
+  "title": "Task",
+  "type": "object"
+}

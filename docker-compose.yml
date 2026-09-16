@@ -1,12 +1,26 @@
-version: '3.8'
-
 services:
   orchestrator:
     build: .
+    init: true
     ports:
-      - "8765:8765"
+      - "127.0.0.1:8765:8765"
     environment:
-      - LOG_LEVEL=INFO
+      STACK_AGENT_STATE: /var/lib/stack-agent
     volumes:
-      - .:/app
-    command: python -m uvicorn stack_integration.api.main:app --host 0.0.0.0 --port 8765
+      - stack-agent-state:/var/lib/stack-agent
+    command:
+      - uvicorn
+      - stack_integration.api.main:create_app
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8765"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  stack-agent-state:
