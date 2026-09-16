@@ -1,4 +1,5 @@
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,19 @@ class FakeAdapter(ProviderAdapter):
             session_id=f"{self.provider.value}-session",
             output="analysis",
             structured_output=structured,
+            exit_code=0,
+            duration_ms=1,
+        )
+
+
+class BadStructuredAdapter(FakeAdapter):
+    async def execute(self, request):
+        return ProviderResult(
+            provider=self.provider,
+            status="completed",
+            session_id=f"{self.provider.value}-session",
+            output="analysis",
+            structured_output=None,
             exit_code=0,
             duration_ms=1,
         )
@@ -207,5 +221,62 @@ async def test_dependent_modifying_task_sees_prerequisite_candidate(tmp_path: Pa
         completed = await controller.execute_run(run.id)
         assert completed.status == RunStatus.COMPLETED
         assert visibility.get("saw_task_a_file") is True
+    finally:
+        controller.close()
+
+
+def test_create_run_preserves_explicit_empty_scope(tmp_path: Path):
+    repo = tmp_path / "repo"
+    make_repo(repo)
+    controller = CollaborationController(Settings.load(tmp_path / "state"))
+    try:
+        run = controller.create_run(repo, "Analyze fixture", ["REQ-1"], scope_paths=[])
+        assert run.scope_paths == []
+    finally:
+        controller.close()
+
+
+@pytest.mark.asyncio
+async def test_doctor_reports_unsupported_nexus_when_script_missing(tmp_path: Path):
+    repo = tmp_path / "repo"
+    make_repo(repo)
+    settings = replace(
+        Settings.load(tmp_path / "state"),
+        nexus_server_script=tmp_path / "no-such-nexus-server.js",
+    )
+    controller = CollaborationController(
+        settings,
+        providers={
+            Provider.CODEX: FakeAdapter(Provider.CODEX),
+            Provider.CLAUDE: FakeAdapter(Provider.CLAUDE),
+        },
+    )
+    try:
+        report = await controller.doctor(repo)
+        assert report["tools"]["nexus"]["status"] == "unsupported"
+    finally:
+        controller.close()
+
+
+@pytest.mark.asyncio
+async def test_completed_worker_without_structured_output_fails_task(tmp_path: Path):
+    repo = tmp_path / "repo"
+    make_repo(repo)
+    settings = Settings.load(tmp_path / "state")
+    controller = CollaborationController(
+        settings,
+        providers={
+            Provider.CODEX: BadStructuredAdapter(Provider.CODEX),
+            Provider.CLAUDE: FakeAdapter(Provider.CLAUDE),
+        },
+    )
+    try:
+        run = controller.create_run(repo, "Analyze fixture", ["REQ-1"])
+        controller.add_tasks(
+            run.id,
+            [{"id": "task-1", "description": "analyze", "provider": "codex"}],
+        )
+        task = await controller.execute_task("task-1")
+        assert task.status.value == "failed"
     finally:
         controller.close()

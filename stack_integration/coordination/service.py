@@ -60,8 +60,10 @@ class CoordinationService:
             review.reviewer_id, project_id=review.project_id, action=SideEffect.READ_ONLY
         )
         task = self.database.get("task", review.task_id, Task)
-        if task.project_id != review.project_id or task.run_id != review.run_id:
-            raise ValueError("review project/run does not match the task's own project/run")
+        if review.project_id != task.project_id:
+            raise ValueError("review project does not match task project")
+        if review.run_id != task.run_id:
+            raise ValueError("review run does not match task run")
         if task.candidate_hash != review.candidate_hash:
             raise ValueError("review candidate does not match the task's current candidate")
         if task.owner_provider != review.author_provider:

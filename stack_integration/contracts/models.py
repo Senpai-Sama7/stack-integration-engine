@@ -31,6 +31,15 @@ def new_id(prefix: str) -> str:
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True, use_enum_values=False)
 
+    @field_validator("*")
+    @classmethod
+    def timezone_aware_datetimes(cls, value: Any) -> Any:
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                raise ValueError("timestamps must include a timezone")
+            return value.astimezone(UTC)
+        return value
+
 
 class CheckDefinition(StrictModel):
     id: str

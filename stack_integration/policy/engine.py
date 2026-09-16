@@ -159,8 +159,8 @@ class PolicyEngine:
 
     @staticmethod
     def _normalize_relative(path: str) -> str:
-        if path == "":
-            raise AuthorizationError("scope paths must not be empty")
+        if not path.strip():
+            raise AuthorizationError("scope path entries must be non-empty")
         candidate = Path(path)
         if candidate.is_absolute() or ".." in candidate.parts:
             raise AuthorizationError("scope paths must be normalized project-relative paths")

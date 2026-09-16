@@ -82,21 +82,6 @@ WORK_RESULT_SCHEMA = {
 }
 
 
-_WORK_RESULT_KEYS = {"summary", "changed_paths", "requirements_addressed", "known_limitations"}
-
-
-def _matches_work_result_schema(payload: dict[str, Any] | None) -> bool:
-    if not isinstance(payload, dict):
-        return False
-    if not isinstance(payload.get("summary"), str):
-        return False
-    for key in ("changed_paths", "requirements_addressed", "known_limitations"):
-        value = payload.get(key)
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-            return False
-    return set(payload) <= _WORK_RESULT_KEYS
-
-
 class CollaborationController:
     def __init__(
         self,
@@ -133,17 +118,12 @@ class CollaborationController:
         if project_root:
             from stack_integration.tools import NexusToolAdapter, SdlcToolAdapter
 
-            async def probe_nexus() -> dict[str, Any]:
-                try:
-                    adapter = NexusToolAdapter(self.settings.nexus_server_script)
-                except FileNotFoundError as error:
-                    return {
-                        "status": "unsupported",
-                        "detail": f"NEXUS server script not found: {error}",
-                    }
-                return await adapter.probe(project_root)
-
             sdlc = SdlcToolAdapter()
+
+            async def probe_nexus() -> Any:
+                nexus = NexusToolAdapter(self.settings.nexus_server_script)
+                return await nexus.probe(project_root)
+
             tool_results: list[Any] = list(
                 await asyncio.gather(probe_nexus(), sdlc.probe(), return_exceptions=True)
             )
@@ -186,7 +166,7 @@ class CollaborationController:
             project_id=project.id,
             run_id=None,
             objective=objective,
-            scope_paths=scope_paths if scope_paths is not None else ["."],
+            scope_paths=["."] if scope_paths is None else list(scope_paths),
             base_revision=self.workspaces.revision(project.root),
             acceptance=acceptance,
             budget=budget or Budget(),
@@ -214,7 +194,9 @@ class CollaborationController:
                     owner_provider=provider,
                     dependencies=list(raw.get("dependencies", [])),
                     required_capabilities=list(raw.get("required_capabilities", [])),
-                    allowed_paths=list(raw.get("allowed_paths", run.scope_paths)),
+                    allowed_paths=list(run.scope_paths)
+                    if raw.get("allowed_paths") is None
+                    else list(raw.get("allowed_paths", [])),
                     acceptance_ids=acceptance_ids,
                     side_effect=SideEffect(raw.get("side_effect", "read_only")),
                 )
@@ -303,10 +285,12 @@ class CollaborationController:
             task.id, actor_id, lease.fencing_token, request, task.owner_provider
         )
         self._record_provider_result(task, actor_id, ActorRole.BUILDER, result)
-        schema_valid = result.status == "completed" and _matches_work_result_schema(
-            result.structured_output
+        invalid_result = (
+            None
+            if result.status != "completed"
+            else self._validate_work_result(result.structured_output)
         )
-        if result.status != "completed" or not schema_valid:
+        if result.status != "completed" or invalid_result is not None:
             transcript = redact_text(f"{result.output}\n{result.error or ''}".strip())
             if transcript:
                 self.artifacts.register_text(
@@ -321,7 +305,7 @@ class CollaborationController:
                 f"provider session ended with status {result.status}"
                 + (f": {redact_text(result.error)}" if result.error else "")
                 if result.status != "completed"
-                else "worker result did not match the required structured output schema"
+                else invalid_result or "provider structured output failed validation"
             )
             self._publish_failure(task, actor_id, failure_reason)
             return self.scheduler.transition(
@@ -621,6 +605,25 @@ class CollaborationController:
     @staticmethod
     def _float_or_none(value: Any) -> float | None:
         return float(value) if isinstance(value, (int, float)) and value >= 0 else None
+
+    @staticmethod
+    def _validate_work_result(payload: Any) -> str | None:
+        if not isinstance(payload, dict):
+            return "provider completed without required structured output"
+        allowed = {"summary", "changed_paths", "requirements_addressed", "known_limitations"}
+        missing = sorted(allowed - set(payload))
+        if missing:
+            return f"provider structured output missing required fields: {missing}"
+        extras = sorted(set(payload) - allowed)
+        if extras:
+            return f"provider structured output includes unexpected fields: {extras}"
+        if not isinstance(payload["summary"], str):
+            return "provider structured output summary must be a string"
+        for field in ("changed_paths", "requirements_addressed", "known_limitations"):
+            values = payload[field]
+            if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
+                return f"provider structured output field {field} must be a string list"
+        return None
 
     def _publish_failure(self, task: Task, actor_id: str, statement: str) -> None:
         self.policy.register_verified_grant(

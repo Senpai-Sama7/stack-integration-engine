@@ -243,25 +243,30 @@ class Scheduler:
     def reconcile_expired(self) -> list[str]:
         now = utc_now()
         rows = self.database._connection.execute(  # controller-internal query
-            "SELECT task_id,lease_id FROM leases WHERE revoked_at IS NULL AND expires_at < ?",
+            "SELECT task_id,lease_id,fencing_token,expires_at FROM leases "
+            "WHERE revoked_at IS NULL AND expires_at < ?",
             (now.isoformat(),),
         ).fetchall()
         reconciled: list[str] = []
         for row in rows:
             task_id = row["task_id"]
-            stale_lease_id = row["lease_id"]
             with self.database.transaction() as connection:
                 lease_row = connection.execute(
-                    "SELECT lease_id,expires_at,revoked_at FROM leases WHERE task_id=?",
+                    "SELECT lease_id,fencing_token,expires_at,body FROM leases "
+                    "WHERE task_id=? AND revoked_at IS NULL",
                     (task_id,),
                 ).fetchone()
+                if lease_row is None:
+                    # Revoked (or replaced) since the scan; nothing to reconcile.
+                    continue
+                lease = Lease.model_validate_json(lease_row["body"])
                 if (
-                    lease_row is None
-                    or lease_row["lease_id"] != stale_lease_id
-                    or lease_row["revoked_at"] is not None
-                    or lease_row["expires_at"] >= now.isoformat()
+                    lease_row["lease_id"] != row["lease_id"]
+                    or int(lease_row["fencing_token"]) != int(row["fencing_token"])
+                    or str(lease_row["expires_at"]) != str(row["expires_at"])
+                    or lease.expires_at >= now
                 ):
-                    # Renewed, revoked, or replaced since the scan; nothing to reconcile.
+                    # Renewed or replaced since the scan; nothing to reconcile.
                     continue
                 task_row = connection.execute(
                     "SELECT body,revision FROM records WHERE kind='task' AND id=?",
@@ -281,7 +286,7 @@ class Scheduler:
                 connection.execute(
                     """UPDATE leases SET revoked_at=?
                        WHERE task_id=? AND lease_id=? AND revoked_at IS NULL""",
-                    (now.isoformat(), task.id, stale_lease_id),
+                    (now.isoformat(), task.id, lease_row["lease_id"]),
                 )
                 self._append_event(connection, task, "task.reconciling", "controller")
             reconciled.append(task_id)

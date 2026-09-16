@@ -48,6 +48,18 @@ console = Console()
 
 StateOption = Annotated[Path | None, typer.Option("--state", help="Controller state directory")]
 
+RUN_STATUS_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
+    RunStatus.PLANNED: {RunStatus.PAUSED, RunStatus.CANCELLED},
+    RunStatus.ACTIVE: {RunStatus.PAUSED, RunStatus.CANCELLED},
+    RunStatus.PAUSED: {RunStatus.ACTIVE, RunStatus.CANCELLED},
+    RunStatus.AWAITING_INPUT: {RunStatus.ACTIVE, RunStatus.PAUSED, RunStatus.CANCELLED},
+    RunStatus.BLOCKED: {RunStatus.ACTIVE, RunStatus.PAUSED, RunStatus.CANCELLED},
+    RunStatus.CANCELLING: {RunStatus.CANCELLED},
+    RunStatus.CANCELLED: set(),
+    RunStatus.FAILED: set(),
+    RunStatus.COMPLETED: set(),
+}
+
 
 def _controller(state: Path | None) -> CollaborationController:
     return CollaborationController(Settings.load(state))
@@ -151,31 +163,14 @@ def inspect(kind: str, record_id: str, state: StateOption = None) -> None:
         controller.close()
 
 
-_RUN_CONTROL_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
-    RunStatus.PAUSED: {
-        RunStatus.PLANNED,
-        RunStatus.ACTIVE,
-        RunStatus.BLOCKED,
-        RunStatus.AWAITING_INPUT,
-    },
-    RunStatus.ACTIVE: {RunStatus.PAUSED, RunStatus.BLOCKED},
-    RunStatus.CANCELLED: {
-        RunStatus.PLANNED,
-        RunStatus.ACTIVE,
-        RunStatus.PAUSED,
-        RunStatus.BLOCKED,
-        RunStatus.AWAITING_INPUT,
-    },
-}
-
-
 def _set_status(run_id: str, target: RunStatus, state: Path | None) -> None:
     controller = _controller(state)
     try:
         run = controller.database.get("run", run_id, Run)
-        allowed = _RUN_CONTROL_TRANSITIONS.get(target, set())
-        if run.status not in allowed:
-            raise typer.BadParameter(f"cannot move run from {run.status.value} to {target.value}")
+        if target not in RUN_STATUS_TRANSITIONS[run.status]:
+            raise typer.BadParameter(
+                f"invalid run transition: {run.status.value} -> {target.value}"
+            )
         run.status = target
         controller.database.save_run(run, expected_revision=run.revision)
         if target == RunStatus.CANCELLED:
