@@ -36,10 +36,18 @@ class Scheduler:
         by_id = {task.id: task for task in tasks}
         if len(by_id) != len(tasks):
             raise AdmissionError("duplicate task IDs")
+        if tasks:
+            project_ids = {task.project_id for task in tasks}
+            run_ids = {task.run_id for task in tasks}
+            if len(project_ids) > 1 or len(run_ids) > 1:
+                raise AdmissionError("task batch must share one project and one run")
         existing = {
             task.id: task
             for task in self.database.list(
-                "task", Task, project_id=tasks[0].project_id if tasks else None
+                "task",
+                Task,
+                project_id=tasks[0].project_id if tasks else None,
+                run_id=tasks[0].run_id if tasks else None,
             )
         }
         all_tasks = existing | by_id

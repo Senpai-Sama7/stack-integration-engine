@@ -57,9 +57,10 @@ async def basic_probe(
         name: CapabilityStatus.SUPPORTED if token in help_text else CapabilityStatus.UNSUPPORTED
         for name, token in expected_help_tokens.items()
     }
+    features_supported = all(status == CapabilityStatus.SUPPORTED for status in features.values())
     overall = (
         CapabilityStatus.SUPPORTED
-        if version_result.exit_code == 0 and help_result.exit_code == 0
+        if version_result.exit_code == 0 and help_result.exit_code == 0 and features_supported
         else CapabilityStatus.DEGRADED
     )
     return Capability(

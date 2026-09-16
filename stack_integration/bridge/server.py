@@ -319,11 +319,20 @@ TOOLS.append(
 )
 
 
+BRIDGE_TEXT_FIELD_LIMIT = 65536
+
+
 class CoordinationBridge:
     def __init__(self, controller: CollaborationController, grant: Grant):
         self.controller = controller
         self.grant = grant
         self.controller.policy.register_verified_grant(grant)
+
+    @staticmethod
+    def _bounded(value: str, *, field: str, limit: int = BRIDGE_TEXT_FIELD_LIMIT) -> str:
+        if len(value.encode()) > limit:
+            raise ValueError(f"{field} exceeds {limit}-byte bridge limit")
+        return value
 
     def call(self, name: str, arguments: dict[str, Any]) -> Any:
         if name == "task_list":
@@ -363,6 +372,9 @@ class CoordinationBridge:
                 mode="json"
             )
         if name == "task_heartbeat":
+            task = self.controller.database.get("task", arguments["task_id"], Task)
+            if task.project_id != self.grant.project_id:
+                raise PermissionError("cross-project heartbeat denied")
             return self.controller.scheduler.heartbeat(
                 arguments["task_id"], self.grant.actor_id, arguments["fencing_token"]
             ).model_dump(mode="json")
@@ -403,8 +415,8 @@ class CoordinationBridge:
                 task_id=arguments.get("task_id"),
                 sender_id=self.grant.actor_id,
                 recipient_id=arguments["recipient_id"],
-                purpose=arguments["purpose"],
-                body=arguments["body"],
+                purpose=self._bounded(arguments["purpose"], field="message purpose"),
+                body=self._bounded(arguments["body"], field="message body"),
                 references=arguments.get("references", []),
             )
             self.controller.coordination.send_message(message)
@@ -424,7 +436,7 @@ class CoordinationBridge:
                 task_id=arguments.get("task_id"),
                 author_id=self.grant.actor_id,
                 kind=arguments["kind"],
-                statement=arguments["statement"],
+                statement=self._bounded(arguments["statement"], field="finding statement"),
                 severity=arguments["severity"],
                 evidence_artifact_ids=arguments.get("evidence_artifact_ids", []),
             )
@@ -482,6 +494,8 @@ class CoordinationBridge:
             if self.grant.role != ActorRole.REVIEWER:
                 raise PermissionError("only a reviewer grant may submit reviews")
             task = self.controller.database.get("task", arguments["task_id"], Task)
+            if task.project_id != self.grant.project_id:
+                raise PermissionError("cross-project review denied")
             if self.grant.provider is None:
                 raise PermissionError("reviewer grant lacks a provider identity")
             review = Review(
@@ -509,9 +523,9 @@ class CoordinationBridge:
                 id=new_id("decision"),
                 project_id=self.grant.project_id,
                 run_id=arguments.get("run_id"),
-                question=arguments["question"],
+                question=self._bounded(arguments["question"], field="decision question"),
                 alternatives=list(arguments["alternatives"]),
-                rationale=arguments["rationale"],
+                rationale=self._bounded(arguments["rationale"], field="decision rationale"),
                 evidence_artifact_ids=list(arguments.get("evidence_artifact_ids", [])),
                 decider_id=self.grant.actor_id,
             )
@@ -540,6 +554,12 @@ class CoordinationBridge:
             )
             return artifact.model_dump(mode="json")
         if name == "verification_request":
+            if self.grant.role not in {
+                ActorRole.VERIFIER,
+                ActorRole.CONTROLLER,
+                ActorRole.OPERATOR,
+            }:
+                raise PermissionError("only a verifier grant may request independent checks")
             task = self.controller.database.get("task", arguments["task_id"], Task)
             self.controller.policy.require(
                 self.grant.actor_id,

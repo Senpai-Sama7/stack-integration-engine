@@ -188,13 +188,21 @@ class CodexAdapter(ProviderAdapter):
             if event.get("type") == "item.completed"
             and event.get("item", {}).get("type") == "agent_message"
         ]
-        status = "completed" if process.exit_code == 0 and completed is not None else "failed"
+        status = (
+            "completed"
+            if process.exit_code == 0 and completed is not None and thread_id
+            else "failed"
+        )
         result_error: str | None = None
         if status != "completed":
             result_error = (
                 (failed or {}).get("message")
                 or process.stderr.decode(errors="replace").strip()
-                or "Codex exited without a terminal completion event"
+                or (
+                    "Codex completed without a thread.started event"
+                    if completed is not None and not thread_id
+                    else "Codex exited without a terminal completion event"
+                )
             )
         structured = None
         if messages:

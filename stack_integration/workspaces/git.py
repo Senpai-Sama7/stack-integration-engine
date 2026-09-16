@@ -14,6 +14,17 @@ class GitError(RuntimeError):
     pass
 
 
+RESERVED_WORKSPACE_NAMES = {"integration"}
+
+
+def _safe_segment(name: str, *, label: str) -> str:
+    if not name or name in {".", ".."} or "/" in name or "\\" in name or "\0" in name:
+        raise GitError(f"invalid {label}: {name!r}")
+    if Path(name).is_absolute():
+        raise GitError(f"invalid {label}: {name!r}")
+    return name
+
+
 class GitWorkspaceManager:
     def __init__(self, state_root: str | Path):
         self.state_root = Path(state_root).expanduser().resolve()
@@ -47,10 +58,31 @@ class GitWorkspaceManager:
         output = self._git(Path(root), "status", "--porcelain=v1", "-z")
         return [item[3:] for item in output.split("\0") if len(item) >= 4]
 
-    def create_task_workspace(
-        self, project: Project, run_id: str, task_id: str, base_revision: str
+    def task_workspace_path(
+        self, project: Project, run_id: str, task_id: str, *, allow_reserved: bool = False
     ) -> Path:
-        destination = self.worktree_root / project.id / run_id / task_id
+        run_id = _safe_segment(run_id, label="run id")
+        task_id = _safe_segment(task_id, label="task id")
+        if not allow_reserved and task_id in RESERVED_WORKSPACE_NAMES:
+            raise GitError(f"task id {task_id!r} is reserved for internal use")
+        containment_root = (self.worktree_root / project.id / run_id).resolve()
+        destination = (containment_root / task_id).resolve()
+        if containment_root != destination and containment_root not in destination.parents:
+            raise GitError("task workspace path escapes managed worktree root")
+        return destination
+
+    def create_task_workspace(
+        self,
+        project: Project,
+        run_id: str,
+        task_id: str,
+        base_revision: str,
+        *,
+        allow_reserved: bool = False,
+    ) -> Path:
+        destination = self.task_workspace_path(
+            project, run_id, task_id, allow_reserved=allow_reserved
+        )
         if destination.exists():
             raise GitError(f"workspace already exists: {destination}")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -140,9 +172,15 @@ class GitWorkspaceManager:
             self._git(root, "cherry-pick", candidate_commit)
             return self.revision(root)
 
-    def remove_task_workspace(self, project: Project, workspace: str | Path) -> None:
+    def remove_task_workspace(
+        self, project: Project, workspace: str | Path, *, force: bool = True
+    ) -> None:
         path = Path(workspace).resolve()
         expected_parent = (self.worktree_root / project.id).resolve()
         if expected_parent not in path.parents:
             raise GitError("refusing to remove workspace outside managed root")
-        self._git(Path(project.root), "worktree", "remove", str(path))
+        args = ["worktree", "remove"]
+        if force:
+            args.append("--force")
+        args.append(str(path))
+        self._git(Path(project.root), *args)

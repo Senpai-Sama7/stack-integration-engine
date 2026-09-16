@@ -178,6 +178,10 @@ class CollaborationController:
         tasks: list[Task] = []
         for index, raw in enumerate(definitions):
             provider = Provider(raw.get("provider", "codex" if index % 2 == 0 else "claude"))
+            acceptance_ids = list(raw.get("acceptance_ids", run.acceptance))
+            unknown = set(acceptance_ids) - set(run.acceptance)
+            if unknown:
+                raise ValueError(f"task acceptance IDs not in run acceptance: {sorted(unknown)}")
             tasks.append(
                 Task(
                     id=str(raw.get("id") or new_id("task")),
@@ -188,7 +192,7 @@ class CollaborationController:
                     dependencies=list(raw.get("dependencies", [])),
                     required_capabilities=list(raw.get("required_capabilities", [])),
                     allowed_paths=list(raw.get("allowed_paths", run.scope_paths)),
-                    acceptance_ids=list(raw.get("acceptance_ids", run.acceptance)),
+                    acceptance_ids=acceptance_ids,
                     side_effect=SideEffect(raw.get("side_effect", "read_only")),
                 )
             )
@@ -232,7 +236,7 @@ class CollaborationController:
         modifying = task.side_effect != SideEffect.READ_ONLY
         workspace = Path(project.root)
         if modifying:
-            planned = self.workspaces.worktree_root / project.id / run.id / task.id
+            planned = self.workspaces.task_workspace_path(project, run.id, task.id)
             workspace = (
                 planned
                 if planned.exists()
@@ -267,6 +271,22 @@ class CollaborationController:
         result = await self.providers[task.owner_provider].execute(request)
         self._record_provider_result(task, actor_id, ActorRole.BUILDER, result)
         if result.status != "completed":
+            transcript = redact_text(f"{result.output}\n{result.error or ''}".strip())
+            if transcript:
+                self.artifacts.register_text(
+                    transcript,
+                    project_id=task.project_id,
+                    run_id=task.run_id,
+                    task_id=task.id,
+                    producer_id=actor_id,
+                    candidate_revision=run.base_revision,
+                )
+            self._publish_failure(
+                task,
+                actor_id,
+                f"provider session ended with status {result.status}"
+                + (f": {redact_text(result.error)}" if result.error else ""),
+            )
             return self.scheduler.transition(
                 task.id,
                 TaskStatus.FAILED,
@@ -530,6 +550,15 @@ class CollaborationController:
         return float(value) if isinstance(value, (int, float)) and value >= 0 else None
 
     def _publish_failure(self, task: Task, actor_id: str, statement: str) -> None:
+        self.policy.register_verified_grant(
+            Grant(
+                actor_id="controller",
+                project_id=task.project_id,
+                role=ActorRole.CONTROLLER,
+                actions=frozenset(SideEffect),
+                scope_paths=(".",),
+            )
+        )
         self.coordination.publish_finding(
             Finding(
                 id=new_id("finding"),
@@ -613,7 +642,20 @@ class CollaborationController:
                         continue
                 break
             tasks = self.database.list("task", Task, project_id=run.project_id, run_id=run.id)
-            if all(task.status in {TaskStatus.VERIFIED, TaskStatus.INTEGRATED} for task in tasks):
+            covered_acceptance = {
+                acceptance_id
+                for task in tasks
+                if task.status in {TaskStatus.VERIFIED, TaskStatus.INTEGRATED}
+                for acceptance_id in task.acceptance_ids
+            }
+            acceptance_satisfied = set(run.acceptance) <= covered_acceptance
+            if (
+                acceptance_satisfied
+                and tasks
+                and all(
+                    task.status in {TaskStatus.VERIFIED, TaskStatus.INTEGRATED} for task in tasks
+                )
+            ):
                 try:
                     await self._integrate(run, tasks)
                 except Exception as error:
@@ -652,12 +694,10 @@ class CollaborationController:
             return
         project = self.database.get("project", run.project_id, Project)
         destination = self.workspaces.worktree_root / project.id / run.id / "integration"
-        workspace = (
-            destination
-            if destination.exists()
-            else self.workspaces.create_task_workspace(
-                project, run.id, "integration", run.base_revision
-            )
+        if destination.exists():
+            self.workspaces.remove_task_workspace(project, destination)
+        workspace = self.workspaces.create_task_workspace(
+            project, run.id, "integration", run.base_revision, allow_reserved=True
         )
         head = run.base_revision
         for task in modifying:
