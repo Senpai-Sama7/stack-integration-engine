@@ -48,6 +48,18 @@ console = Console()
 
 StateOption = Annotated[Path | None, typer.Option("--state", help="Controller state directory")]
 
+RUN_STATUS_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
+    RunStatus.PLANNED: {RunStatus.PAUSED, RunStatus.CANCELLED},
+    RunStatus.ACTIVE: {RunStatus.PAUSED, RunStatus.CANCELLED},
+    RunStatus.PAUSED: {RunStatus.ACTIVE, RunStatus.CANCELLED},
+    RunStatus.AWAITING_INPUT: {RunStatus.ACTIVE, RunStatus.PAUSED, RunStatus.CANCELLED},
+    RunStatus.BLOCKED: {RunStatus.ACTIVE, RunStatus.PAUSED, RunStatus.CANCELLED},
+    RunStatus.CANCELLING: {RunStatus.CANCELLED},
+    RunStatus.CANCELLED: set(),
+    RunStatus.FAILED: set(),
+    RunStatus.COMPLETED: set(),
+}
+
 
 def _controller(state: Path | None) -> CollaborationController:
     return CollaborationController(Settings.load(state))
@@ -155,6 +167,10 @@ def _set_status(run_id: str, target: RunStatus, state: Path | None) -> None:
     controller = _controller(state)
     try:
         run = controller.database.get("run", run_id, Run)
+        if target not in RUN_STATUS_TRANSITIONS[run.status]:
+            raise typer.BadParameter(
+                f"invalid run transition: {run.status.value} -> {target.value}"
+            )
         run.status = target
         controller.database.save_run(run, expected_revision=run.revision)
         if target == RunStatus.CANCELLED:

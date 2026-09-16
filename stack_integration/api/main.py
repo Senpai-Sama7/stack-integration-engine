@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import tempfile
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -40,12 +41,23 @@ function esc(s){const e=document.createElement('div');e.textContent=s;return e.i
 def ensure_operator_token(settings: Settings) -> str:
     path = settings.state_root / "operator.token"
     if path.exists():
-        return path.read_text().strip()
+        token = path.read_text().strip()
+        if token:
+            return token
     path.parent.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, "w") as target:
-        target.write(token + "\n")
+    if path.exists():
+        with tempfile.NamedTemporaryFile(
+            "w", dir=path.parent, prefix=".operator-token-", delete=False
+        ) as target:
+            temporary = target.name
+            target.write(token + "\n")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    else:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as target:
+            target.write(token + "\n")
     return token
 
 

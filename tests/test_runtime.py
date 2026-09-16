@@ -54,6 +54,19 @@ class FakeAdapter(ProviderAdapter):
         )
 
 
+class BadStructuredAdapter(FakeAdapter):
+    async def execute(self, request):
+        return ProviderResult(
+            provider=self.provider,
+            status="completed",
+            session_id=f"{self.provider.value}-session",
+            output="analysis",
+            structured_output=None,
+            exit_code=0,
+            duration_ms=1,
+        )
+
+
 def make_repo(path: Path):
     path.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=path, check=True)
@@ -103,5 +116,59 @@ async def test_read_only_dual_provider_run_completes(tmp_path: Path):
         report = controller.run_report(run.id)
         assert len(report["reviews"]) == 1
         assert {item["provider"] for item in report["sessions"]} == {"codex", "claude"}
+    finally:
+        controller.close()
+
+
+def test_create_run_preserves_explicit_empty_scope(tmp_path: Path):
+    repo = tmp_path / "repo"
+    make_repo(repo)
+    controller = CollaborationController(Settings.load(tmp_path / "state"))
+    try:
+        run = controller.create_run(repo, "Analyze fixture", ["REQ-1"], scope_paths=[])
+        assert run.scope_paths == []
+    finally:
+        controller.close()
+
+
+@pytest.mark.asyncio
+async def test_doctor_reports_unsupported_nexus_when_script_missing(tmp_path: Path):
+    repo = tmp_path / "repo"
+    make_repo(repo)
+    settings = Settings.load(tmp_path / "state")
+    controller = CollaborationController(
+        settings,
+        providers={
+            Provider.CODEX: FakeAdapter(Provider.CODEX),
+            Provider.CLAUDE: FakeAdapter(Provider.CLAUDE),
+        },
+    )
+    try:
+        report = await controller.doctor(repo)
+        assert report["tools"]["nexus"]["status"] == "unsupported"
+    finally:
+        controller.close()
+
+
+@pytest.mark.asyncio
+async def test_completed_worker_without_structured_output_fails_task(tmp_path: Path):
+    repo = tmp_path / "repo"
+    make_repo(repo)
+    settings = Settings.load(tmp_path / "state")
+    controller = CollaborationController(
+        settings,
+        providers={
+            Provider.CODEX: BadStructuredAdapter(Provider.CODEX),
+            Provider.CLAUDE: FakeAdapter(Provider.CLAUDE),
+        },
+    )
+    try:
+        run = controller.create_run(repo, "Analyze fixture", ["REQ-1"])
+        controller.add_tasks(
+            run.id,
+            [{"id": "task-1", "description": "analyze", "provider": "codex"}],
+        )
+        task = await controller.execute_task("task-1")
+        assert task.status.value == "failed"
     finally:
         controller.close()

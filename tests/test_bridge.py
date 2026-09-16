@@ -28,6 +28,13 @@ def test_signed_bridge_grant_round_trip_and_tamper(tmp_path):
         manager.verify(token[:-2] + "xx")
 
 
+def test_invalid_bridge_secret_is_rejected_for_verification(tmp_path):
+    secret = tmp_path / "bridge.key"
+    secret.write_bytes(b"short")
+    with pytest.raises(BridgeAuthenticationError, match="invalid length"):
+        BridgeTokenManager(secret).verify("e30=.AA==")
+
+
 def test_bridge_tools_share_authoritative_state(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -103,5 +110,80 @@ def test_bridge_tools_share_authoritative_state(tmp_path):
         assert bridge.call("run_checkpoint", {"run_id": run.id, "summary": "restart here"})[
             "id"
         ].startswith("art_")
+    finally:
+        controller.close()
+
+
+def test_task_claim_requires_builder_provider_and_scope(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "README.md").write_text("fixture\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "base",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    controller = CollaborationController(Settings.load(tmp_path / "state"))
+    try:
+        run = controller.create_run(repo, "review", ["REQ"])
+        controller.add_tasks(
+            run.id,
+            [
+                {
+                    "id": "task",
+                    "description": "edit",
+                    "provider": "codex",
+                    "side_effect": "worktree_write",
+                    "allowed_paths": ["src"],
+                }
+            ],
+        )
+        reviewer_grant = Grant(
+            "claude-reviewer",
+            run.project_id,
+            ActorRole.REVIEWER,
+            frozenset({SideEffect.READ_ONLY}),
+            ("src",),
+            provider=Provider.CLAUDE,
+        )
+        with pytest.raises(PermissionError, match="builder"):
+            CoordinationBridge(controller, reviewer_grant).call("task_claim", {"task_id": "task"})
+
+        wrong_provider_grant = Grant(
+            "claude-builder",
+            run.project_id,
+            ActorRole.BUILDER,
+            frozenset({SideEffect.WORKTREE_WRITE}),
+            ("src",),
+            provider=Provider.CLAUDE,
+        )
+        with pytest.raises(PermissionError, match="provider"):
+            CoordinationBridge(controller, wrong_provider_grant).call(
+                "task_claim", {"task_id": "task"}
+            )
+
+        out_of_scope_grant = Grant(
+            "codex-builder",
+            run.project_id,
+            ActorRole.BUILDER,
+            frozenset({SideEffect.WORKTREE_WRITE}),
+            ("docs",),
+            provider=Provider.CODEX,
+        )
+        with pytest.raises(PermissionError):
+            CoordinationBridge(controller, out_of_scope_grant).call(
+                "task_claim", {"task_id": "task"}
+            )
     finally:
         controller.close()

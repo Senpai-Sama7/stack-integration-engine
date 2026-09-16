@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from stack_integration.contracts.models import (
+    Lease,
     Provider,
     Review,
     TaskStatus,
@@ -60,3 +61,17 @@ def test_naive_timestamp_is_rejected():
 def test_invalid_transition_is_rejected():
     with pytest.raises(ValueError, match="invalid task transition"):
         assert_task_transition(TaskStatus.READY, TaskStatus.VERIFIED)
+
+
+def test_lease_naive_datetime_is_rejected():
+    with pytest.raises(ValidationError, match="timezone"):
+        Lease(
+            id="lease",
+            project_id="project",
+            run_id="run",
+            task_id="task",
+            actor_id="actor",
+            attempt=1,
+            fencing_token=1,
+            expires_at=datetime.now(),
+        )

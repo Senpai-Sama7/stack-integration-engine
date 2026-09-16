@@ -112,7 +112,7 @@ class PolicyEngine:
             raise AuthorizationError("only the operator or controller may issue grants")
         if issuer.project_id != project_id:
             raise AuthorizationError("grant issuer is outside project scope")
-        actions = requested_actions or set(ROLE_ACTIONS[role])
+        actions = set(ROLE_ACTIONS[role]) if requested_actions is None else set(requested_actions)
         allowed = set(ROLE_ACTIONS[role])
         if not actions <= allowed:
             raise AuthorizationError("requested actions exceed role authority")
@@ -159,6 +159,8 @@ class PolicyEngine:
 
     @staticmethod
     def _normalize_relative(path: str) -> str:
+        if not path.strip():
+            raise AuthorizationError("scope path entries must be non-empty")
         candidate = Path(path)
         if candidate.is_absolute() or ".." in candidate.parts:
             raise AuthorizationError("scope paths must be normalized project-relative paths")

@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import sys
+import tempfile
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -44,14 +45,27 @@ class BridgeTokenManager:
 
     def _secret(self, create: bool) -> bytes:
         if self.secret_path.exists():
-            return self.secret_path.read_bytes()
+            value = self.secret_path.read_bytes()
+            if len(value) == 32:
+                return value
+            if not create:
+                raise BridgeAuthenticationError("bridge secret has invalid length")
         if not create:
             raise BridgeAuthenticationError("bridge secret is not initialized")
         self.secret_path.parent.mkdir(parents=True, exist_ok=True)
         value = secrets.token_bytes(32)
-        descriptor = os.open(self.secret_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb") as target:
-            target.write(value)
+        if self.secret_path.exists():
+            with tempfile.NamedTemporaryFile(
+                "wb", dir=self.secret_path.parent, prefix=".bridge-secret-", delete=False
+            ) as target:
+                temporary = target.name
+                target.write(value)
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, self.secret_path)
+        else:
+            descriptor = os.open(self.secret_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "wb") as target:
+                target.write(value)
         return value
 
     def issue(self, grant: Grant, ttl_seconds: int = 3600) -> str:
@@ -360,6 +374,10 @@ class CoordinationBridge:
             return task.model_dump(mode="json")
         if name == "task_claim":
             task = self.controller.database.get("task", arguments["task_id"], Task)
+            if self.grant.role != ActorRole.BUILDER:
+                raise PermissionError("only a builder grant may claim tasks")
+            if self.grant.provider != task.owner_provider:
+                raise PermissionError("builder grant provider does not match task ownership")
             needed = (
                 SideEffect.READ_ONLY
                 if task.side_effect == SideEffect.READ_ONLY
@@ -368,6 +386,13 @@ class CoordinationBridge:
             self.controller.policy.require(
                 self.grant.actor_id, project_id=task.project_id, action=needed
             )
+            for path in task.allowed_paths:
+                self.controller.policy.require(
+                    self.grant.actor_id,
+                    project_id=task.project_id,
+                    action=needed,
+                    relative_path=path,
+                )
             return self.controller.scheduler.claim(task.id, self.grant.actor_id).model_dump(
                 mode="json"
             )

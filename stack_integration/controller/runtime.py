@@ -40,7 +40,7 @@ from stack_integration.storage import ArtifactStore, ControllerDatabase
 from stack_integration.verification import VerificationRunner
 from stack_integration.workspaces import GitError, GitWorkspaceManager
 
-from .scheduler import Scheduler
+from .scheduler import LeaseError, Scheduler
 
 REVIEW_SCHEMA = {
     "type": "object",
@@ -117,11 +117,15 @@ class CollaborationController:
         if project_root:
             from stack_integration.tools import NexusToolAdapter, SdlcToolAdapter
 
-            nexus = NexusToolAdapter(self.settings.nexus_server_script)
             sdlc = SdlcToolAdapter()
+
+            async def probe_nexus() -> Any:
+                nexus = NexusToolAdapter(self.settings.nexus_server_script)
+                return await nexus.probe(project_root)
+
             tool_results: list[Any] = list(
                 await asyncio.gather(
-                    nexus.probe(project_root), sdlc.probe(), return_exceptions=True
+                    probe_nexus(), sdlc.probe(), return_exceptions=True
                 )
             )
             report["tools"] = {
@@ -163,7 +167,7 @@ class CollaborationController:
             project_id=project.id,
             run_id=None,
             objective=objective,
-            scope_paths=scope_paths or ["."],
+            scope_paths=["."] if scope_paths is None else list(scope_paths),
             base_revision=self.workspaces.revision(project.root),
             acceptance=acceptance,
             budget=budget or Budget(),
@@ -191,7 +195,9 @@ class CollaborationController:
                     owner_provider=provider,
                     dependencies=list(raw.get("dependencies", [])),
                     required_capabilities=list(raw.get("required_capabilities", [])),
-                    allowed_paths=list(raw.get("allowed_paths", run.scope_paths)),
+                    allowed_paths=list(run.scope_paths)
+                    if raw.get("allowed_paths") is None
+                    else list(raw.get("allowed_paths", [])),
                     acceptance_ids=acceptance_ids,
                     side_effect=SideEffect(raw.get("side_effect", "read_only")),
                 )
@@ -287,6 +293,15 @@ class CollaborationController:
                 f"provider session ended with status {result.status}"
                 + (f": {redact_text(result.error)}" if result.error else ""),
             )
+            return self.scheduler.transition(
+                task.id,
+                TaskStatus.FAILED,
+                actor_id=actor_id,
+                fencing_token=lease.fencing_token,
+            )
+        invalid_result = self._validate_work_result(result.structured_output)
+        if invalid_result is not None:
+            self._publish_failure(task, actor_id, invalid_result)
             return self.scheduler.transition(
                 task.id,
                 TaskStatus.FAILED,
@@ -408,7 +423,7 @@ class CollaborationController:
             "Do not modify files or delegate. Check correctness, regressions, security, "
             "and every acceptance item.\n\n"
             f"Task: {task.description}\nAcceptance: {task.acceptance_ids}\n"
-            f"Candidate hash: {task.candidate_hash}\nWorker report:\n{worker_output}\n"
+            f"Candidate hash: {task.candidate_hash}\nWorker report:\n{redact_text(worker_output)}\n"
             f"Candidate diff:\n{diff[:200000]}"
         )
         result = await self.providers[reviewer_provider].execute(
@@ -549,6 +564,25 @@ class CollaborationController:
     def _float_or_none(value: Any) -> float | None:
         return float(value) if isinstance(value, (int, float)) and value >= 0 else None
 
+    @staticmethod
+    def _validate_work_result(payload: Any) -> str | None:
+        if not isinstance(payload, dict):
+            return "provider completed without required structured output"
+        allowed = {"summary", "changed_paths", "requirements_addressed", "known_limitations"}
+        missing = sorted(allowed - set(payload))
+        if missing:
+            return f"provider structured output missing required fields: {missing}"
+        extras = sorted(set(payload) - allowed)
+        if extras:
+            return f"provider structured output includes unexpected fields: {extras}"
+        if not isinstance(payload["summary"], str):
+            return "provider structured output summary must be a string"
+        for field in ("changed_paths", "requirements_addressed", "known_limitations"):
+            values = payload[field]
+            if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
+                return f"provider structured output field {field} must be a string list"
+        return None
+
     def _publish_failure(self, task: Task, actor_id: str, statement: str) -> None:
         self.policy.register_verified_grant(
             Grant(
@@ -591,6 +625,8 @@ class CollaborationController:
                             return await self.execute_task(task.id)
                         async with modifying_semaphore:
                             return await self.execute_task(task.id)
+                except LeaseError:
+                    return self.database.get("task", task.id, Task)
                 except Exception as error:
                     current = self.database.get("task", task.id, Task)
                     self._publish_failure(

@@ -50,6 +50,9 @@ class Scheduler:
                 run_id=tasks[0].run_id if tasks else None,
             )
         }
+        duplicate_ids = sorted(task_id for task_id in by_id if task_id in existing)
+        if duplicate_ids:
+            raise AdmissionError(f"task IDs already exist: {duplicate_ids}")
         all_tasks = existing | by_id
         for task in tasks:
             if task.side_effect.value != "read_only" and not task.allowed_paths:
@@ -237,13 +240,28 @@ class Scheduler:
     def reconcile_expired(self) -> list[str]:
         now = utc_now()
         rows = self.database._connection.execute(  # controller-internal query
-            "SELECT task_id,body FROM leases WHERE revoked_at IS NULL AND expires_at < ?",
+            "SELECT task_id,lease_id,fencing_token,expires_at FROM leases "
+            "WHERE revoked_at IS NULL AND expires_at < ?",
             (now.isoformat(),),
         ).fetchall()
         reconciled: list[str] = []
         for row in rows:
-            lease = Lease.model_validate_json(row["body"])
             with self.database.transaction() as connection:
+                lease_row = connection.execute(
+                    "SELECT lease_id,fencing_token,expires_at,body FROM leases "
+                    "WHERE task_id=? AND revoked_at IS NULL",
+                    (row["task_id"],),
+                ).fetchone()
+                if lease_row is None:
+                    continue
+                lease = Lease.model_validate_json(lease_row["body"])
+                if (
+                    lease_row["lease_id"] != row["lease_id"]
+                    or int(lease_row["fencing_token"]) != int(row["fencing_token"])
+                    or str(lease_row["expires_at"]) != str(row["expires_at"])
+                    or lease.expires_at >= now
+                ):
+                    continue
                 task_row = connection.execute(
                     "SELECT body,revision FROM records WHERE kind='task' AND id=?",
                     (lease.task_id,),

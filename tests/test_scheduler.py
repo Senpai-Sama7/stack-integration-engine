@@ -64,10 +64,18 @@ def test_stale_fencing_token_is_rejected(database: ControllerDatabase):
 def test_expired_writer_enters_reconciliation(database: ControllerDatabase):
     scheduler = Scheduler(database)
     scheduler.admit_tasks([task("a")])
-    scheduler.claim("a", "codex")
+    lease = scheduler.claim("a", "codex")
+    lease.expires_at = utc_now() - timedelta(seconds=1)
     database._connection.execute(
-        "UPDATE leases SET expires_at=? WHERE task_id='a'",
-        ((utc_now() - timedelta(seconds=1)).isoformat(),),
+        "UPDATE leases SET expires_at=?,body=? WHERE task_id='a'",
+        (lease.expires_at.isoformat(), lease.model_dump_json()),
     )
     assert scheduler.reconcile_expired() == ["a"]
     assert database.get("task", "a", Task).status == TaskStatus.RECONCILING
+
+
+def test_admission_rejects_existing_task_ids(database: ControllerDatabase):
+    scheduler = Scheduler(database)
+    scheduler.admit_tasks([task("a")])
+    with pytest.raises(AdmissionError, match="already exist"):
+        scheduler.admit_tasks([task("a")])

@@ -33,25 +33,29 @@ class McpStdioClient:
         self.stderr: list[str] = []
 
     async def start(self) -> McpStdioClient:
-        self.process = await asyncio.create_subprocess_exec(
-            *self.command,
-            cwd=self.cwd,
-            env={**os.environ, **self.env},
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        self._stderr_task = asyncio.create_task(self._drain_stderr())
-        await self.request(
-            "initialize",
-            {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "stack-integration-engine", "version": "0.2.0"},
-            },
-        )
-        await self.notify("notifications/initialized", {})
-        return self
+        try:
+            self.process = await asyncio.create_subprocess_exec(
+                *self.command,
+                cwd=self.cwd,
+                env={**os.environ, **self.env},
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            self._stderr_task = asyncio.create_task(self._drain_stderr())
+            await self.request(
+                "initialize",
+                {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "stack-integration-engine", "version": "0.2.0"},
+                },
+            )
+            await self.notify("notifications/initialized", {})
+            return self
+        except Exception:
+            await self.close()
+            raise
 
     async def _drain_stderr(self) -> None:
         assert self.process and self.process.stderr

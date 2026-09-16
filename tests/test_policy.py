@@ -91,3 +91,29 @@ def test_peer_cannot_gain_push_authority():
             scope_paths=["."],
             requested_actions={SideEffect.PUSH},
         )
+
+
+def test_explicit_empty_requested_actions_remain_empty():
+    policy = PolicyEngine()
+    grant = policy.issue_grant(
+        issuer=operator(),
+        actor_id="empty-actions",
+        project_id="p1",
+        role=ActorRole.BUILDER,
+        scope_paths=["src"],
+        requested_actions=set(),
+    )
+    assert grant.actions == frozenset()
+
+
+def test_empty_scope_entry_is_rejected():
+    policy = PolicyEngine()
+    with pytest.raises(AuthorizationError, match="non-empty"):
+        policy.issue_grant(
+            issuer=operator(),
+            actor_id="worker",
+            project_id="p1",
+            role=ActorRole.BUILDER,
+            scope_paths=[""],
+            requested_actions={SideEffect.READ_ONLY},
+        )
