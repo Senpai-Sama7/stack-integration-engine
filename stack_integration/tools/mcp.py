@@ -42,15 +42,19 @@ class McpStdioClient:
             stderr=asyncio.subprocess.PIPE,
         )
         self._stderr_task = asyncio.create_task(self._drain_stderr())
-        await self.request(
-            "initialize",
-            {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "stack-integration-engine", "version": "0.2.0"},
-            },
-        )
-        await self.notify("notifications/initialized", {})
+        try:
+            await self.request(
+                "initialize",
+                {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "stack-integration-engine", "version": "0.2.0"},
+                },
+            )
+            await self.notify("notifications/initialized", {})
+        except Exception:
+            await self.close()
+            raise
         return self
 
     async def _drain_stderr(self) -> None:

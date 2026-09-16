@@ -159,6 +159,13 @@ class GitWorkspaceManager:
         )
         return self.revision(root)
 
+    def compose_task_base(self, workspace: str | Path, commits: list[str]) -> str:
+        """Cherry-pick verified dependency commits onto a task's private worktree."""
+        root = Path(workspace)
+        for commit in commits:
+            self._git(root, "cherry-pick", commit)
+        return self.revision(root)
+
     def integrate_commit(
         self, integration_workspace: str | Path, candidate_commit: str, expected_head: str
     ) -> str:

@@ -40,7 +40,10 @@ function esc(s){const e=document.createElement('div');e.textContent=s;return e.i
 def ensure_operator_token(settings: Settings) -> str:
     path = settings.state_root / "operator.token"
     if path.exists():
-        return path.read_text().strip()
+        existing = path.read_text().strip()
+        if existing:
+            return existing
+        path.unlink()
     path.parent.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -52,11 +55,13 @@ def ensure_operator_token(settings: Settings) -> str:
 def create_app(settings: Settings | None = None, token: str | None = None) -> FastAPI:
     active_settings = settings or Settings.load()
     expected_token = token or ensure_operator_token(active_settings)
+    if not expected_token:
+        raise RuntimeError("operator token must not be empty")
     app = FastAPI(title="Stack Integration Engine", version="0.2.0")
 
     def authenticate(authorization: Annotated[str | None, Header()] = None) -> None:
         supplied = authorization.removeprefix("Bearer ") if authorization else ""
-        if not secrets.compare_digest(supplied, expected_token):
+        if not supplied or not secrets.compare_digest(supplied, expected_token):
             raise HTTPException(status_code=401, detail="invalid operator token")
 
     @app.get("/", response_class=HTMLResponse)

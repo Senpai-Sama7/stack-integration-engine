@@ -44,14 +44,21 @@ class BridgeTokenManager:
 
     def _secret(self, create: bool) -> bytes:
         if self.secret_path.exists():
-            return self.secret_path.read_bytes()
+            existing = self.secret_path.read_bytes()
+            if len(existing) >= 32:
+                return existing
+            self.secret_path.unlink()
         if not create:
             raise BridgeAuthenticationError("bridge secret is not initialized")
         self.secret_path.parent.mkdir(parents=True, exist_ok=True)
         value = secrets.token_bytes(32)
-        descriptor = os.open(self.secret_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        tmp_path = self.secret_path.with_suffix(".tmp")
+        descriptor = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb") as target:
             target.write(value)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(tmp_path, self.secret_path)
         return value
 
     def issue(self, grant: Grant, ttl_seconds: int = 3600) -> str:
@@ -360,6 +367,10 @@ class CoordinationBridge:
             return task.model_dump(mode="json")
         if name == "task_claim":
             task = self.controller.database.get("task", arguments["task_id"], Task)
+            if self.grant.role != ActorRole.BUILDER:
+                raise PermissionError("only a builder grant may claim a task")
+            if self.grant.provider is not None and self.grant.provider != task.owner_provider:
+                raise PermissionError("grant provider does not match the task's owner provider")
             needed = (
                 SideEffect.READ_ONLY
                 if task.side_effect == SideEffect.READ_ONLY
@@ -368,6 +379,13 @@ class CoordinationBridge:
             self.controller.policy.require(
                 self.grant.actor_id, project_id=task.project_id, action=needed
             )
+            for path in task.allowed_paths:
+                self.controller.policy.require(
+                    self.grant.actor_id,
+                    project_id=task.project_id,
+                    action=needed,
+                    relative_path=path,
+                )
             return self.controller.scheduler.claim(task.id, self.grant.actor_id).model_dump(
                 mode="json"
             )

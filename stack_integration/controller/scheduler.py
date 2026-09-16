@@ -41,6 +41,12 @@ class Scheduler:
             run_ids = {task.run_id for task in tasks}
             if len(project_ids) > 1 or len(run_ids) > 1:
                 raise AdmissionError("task batch must share one project and one run")
+        for task in tasks:
+            try:
+                self.database.get("task", task.id, Task)
+            except NotFoundError:
+                continue
+            raise AdmissionError(f"task ID already exists in storage: {task.id}")
         existing = {
             task.id: task
             for task in self.database.list(
@@ -237,16 +243,29 @@ class Scheduler:
     def reconcile_expired(self) -> list[str]:
         now = utc_now()
         rows = self.database._connection.execute(  # controller-internal query
-            "SELECT task_id,body FROM leases WHERE revoked_at IS NULL AND expires_at < ?",
+            "SELECT task_id,lease_id FROM leases WHERE revoked_at IS NULL AND expires_at < ?",
             (now.isoformat(),),
         ).fetchall()
         reconciled: list[str] = []
         for row in rows:
-            lease = Lease.model_validate_json(row["body"])
+            task_id = row["task_id"]
+            stale_lease_id = row["lease_id"]
             with self.database.transaction() as connection:
+                lease_row = connection.execute(
+                    "SELECT lease_id,expires_at,revoked_at FROM leases WHERE task_id=?",
+                    (task_id,),
+                ).fetchone()
+                if (
+                    lease_row is None
+                    or lease_row["lease_id"] != stale_lease_id
+                    or lease_row["revoked_at"] is not None
+                    or lease_row["expires_at"] >= now.isoformat()
+                ):
+                    # Renewed, revoked, or replaced since the scan; nothing to reconcile.
+                    continue
                 task_row = connection.execute(
                     "SELECT body,revision FROM records WHERE kind='task' AND id=?",
-                    (lease.task_id,),
+                    (task_id,),
                 ).fetchone()
                 if task_row is None:
                     continue
@@ -260,11 +279,12 @@ class Scheduler:
                     (task.model_dump_json(), task.revision, now.isoformat(), task.id),
                 )
                 connection.execute(
-                    "UPDATE leases SET revoked_at=? WHERE task_id=? AND revoked_at IS NULL",
-                    (now.isoformat(), task.id),
+                    """UPDATE leases SET revoked_at=?
+                       WHERE task_id=? AND lease_id=? AND revoked_at IS NULL""",
+                    (now.isoformat(), task.id, stale_lease_id),
                 )
                 self._append_event(connection, task, "task.reconciling", "controller")
-            reconciled.append(lease.task_id)
+            reconciled.append(task_id)
         return reconciled
 
     def force_terminal(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 import time
 from pathlib import Path
@@ -40,7 +41,7 @@ from stack_integration.storage import ArtifactStore, ControllerDatabase
 from stack_integration.verification import VerificationRunner
 from stack_integration.workspaces import GitError, GitWorkspaceManager
 
-from .scheduler import Scheduler
+from .scheduler import LeaseError, Scheduler
 
 REVIEW_SCHEMA = {
     "type": "object",
@@ -81,6 +82,21 @@ WORK_RESULT_SCHEMA = {
 }
 
 
+_WORK_RESULT_KEYS = {"summary", "changed_paths", "requirements_addressed", "known_limitations"}
+
+
+def _matches_work_result_schema(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if not isinstance(payload.get("summary"), str):
+        return False
+    for key in ("changed_paths", "requirements_addressed", "known_limitations"):
+        value = payload.get(key)
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            return False
+    return set(payload) <= _WORK_RESULT_KEYS
+
+
 class CollaborationController:
     def __init__(
         self,
@@ -117,12 +133,19 @@ class CollaborationController:
         if project_root:
             from stack_integration.tools import NexusToolAdapter, SdlcToolAdapter
 
-            nexus = NexusToolAdapter(self.settings.nexus_server_script)
+            async def probe_nexus() -> dict[str, Any]:
+                try:
+                    adapter = NexusToolAdapter(self.settings.nexus_server_script)
+                except FileNotFoundError as error:
+                    return {
+                        "status": "unsupported",
+                        "detail": f"NEXUS server script not found: {error}",
+                    }
+                return await adapter.probe(project_root)
+
             sdlc = SdlcToolAdapter()
             tool_results: list[Any] = list(
-                await asyncio.gather(
-                    nexus.probe(project_root), sdlc.probe(), return_exceptions=True
-                )
+                await asyncio.gather(probe_nexus(), sdlc.probe(), return_exceptions=True)
             )
             report["tools"] = {
                 "nexus": self._exception_payload(tool_results[0]),
@@ -163,7 +186,7 @@ class CollaborationController:
             project_id=project.id,
             run_id=None,
             objective=objective,
-            scope_paths=scope_paths or ["."],
+            scope_paths=scope_paths if scope_paths is not None else ["."],
             base_revision=self.workspaces.revision(project.root),
             acceptance=acceptance,
             budget=budget or Budget(),
@@ -234,18 +257,26 @@ class CollaborationController:
         lease = self.scheduler.claim(task.id, actor_id)
         task = self.database.get("task", task.id, Task)
         modifying = task.side_effect != SideEffect.READ_ONLY
-        workspace = Path(project.root)
-        if modifying:
-            planned = self.workspaces.task_workspace_path(project, run.id, task.id)
-            workspace = (
-                planned
-                if planned.exists()
-                else self.workspaces.create_task_workspace(
-                    project, run.id, task.id, run.base_revision
-                )
+        planned = self.workspaces.task_workspace_path(project, run.id, task.id)
+        if planned.exists():
+            workspace = planned
+        else:
+            workspace = self.workspaces.create_task_workspace(
+                project, run.id, task.id, run.base_revision
             )
-            task.workspace = str(workspace)
-            self.database.save_task(task, expected_revision=task.revision)
+            if modifying:
+                dependency_commits = [
+                    dependency.candidate_commit
+                    for dependency_id in task.dependencies
+                    if (
+                        dependency := self.database.get("task", dependency_id, Task)
+                    ).candidate_commit
+                ]
+                if dependency_commits:
+                    self.workspaces.compose_task_base(workspace, dependency_commits)
+        effective_base = self.workspaces.revision(workspace)
+        task.workspace = str(workspace)
+        self.database.save_task(task, expected_revision=task.revision)
         self.scheduler.transition(
             task.id,
             TaskStatus.RUNNING,
@@ -268,9 +299,14 @@ class CollaborationController:
             output_schema=WORK_RESULT_SCHEMA,
             **self._bridge_options(actor_grant),
         )
-        result = await self.providers[task.owner_provider].execute(request)
+        result = await self._execute_with_heartbeat(
+            task.id, actor_id, lease.fencing_token, request, task.owner_provider
+        )
         self._record_provider_result(task, actor_id, ActorRole.BUILDER, result)
-        if result.status != "completed":
+        schema_valid = result.status == "completed" and _matches_work_result_schema(
+            result.structured_output
+        )
+        if result.status != "completed" or not schema_valid:
             transcript = redact_text(f"{result.output}\n{result.error or ''}".strip())
             if transcript:
                 self.artifacts.register_text(
@@ -281,12 +317,13 @@ class CollaborationController:
                     producer_id=actor_id,
                     candidate_revision=run.base_revision,
                 )
-            self._publish_failure(
-                task,
-                actor_id,
+            failure_reason = (
                 f"provider session ended with status {result.status}"
-                + (f": {redact_text(result.error)}" if result.error else ""),
+                + (f": {redact_text(result.error)}" if result.error else "")
+                if result.status != "completed"
+                else "worker result did not match the required structured output schema"
             )
+            self._publish_failure(task, actor_id, failure_reason)
             return self.scheduler.transition(
                 task.id,
                 TaskStatus.FAILED,
@@ -303,9 +340,9 @@ class CollaborationController:
         )
         if modifying:
             try:
-                self.workspaces.enforce_scope(workspace, run.base_revision, task.allowed_paths)
+                self.workspaces.enforce_scope(workspace, effective_base, task.allowed_paths)
                 candidate_hash = self.workspaces.candidate_hash(workspace)
-                if not self.workspaces.changed_paths(workspace, run.base_revision):
+                if not self.workspaces.changed_paths(workspace, effective_base):
                     raise GitError("provider reported completion but produced no changes")
             except GitError as error:
                 self._publish_failure(task, actor_id, str(error))
@@ -325,15 +362,25 @@ class CollaborationController:
             candidate_hash=candidate_hash,
         )
         self.scheduler.transition(task.id, TaskStatus.REVIEWING, actor_id="controller")
-        review = await self._cross_review(submitted, run, workspace, result.output)
+        review = await self._cross_review(submitted, run, workspace, result.output, effective_base)
         checks = await self._verify(submitted, run, workspace) if modifying else []
         required = self._check_definitions(workspace, run) if modifying else []
         current_task = self.database.get("task", task.id, Task)
         coverage_complete = set(task.acceptance_ids) <= set(review.requirement_coverage)
+        candidate_drifted = modifying and (
+            self.workspaces.candidate_hash(workspace) != submitted.candidate_hash
+        )
+        if candidate_drifted:
+            self._publish_failure(
+                task,
+                "controller",
+                "verification checks altered the reviewed candidate; discarding drifted result",
+            )
         if (
             review.verdict != Verdict.APPROVE
             or not coverage_complete
             or not self.verifier.required_checks_pass(required, checks)
+            or candidate_drifted
         ):
             return self.scheduler.transition(
                 task.id, TaskStatus.CHANGES_REQUESTED, actor_id="controller"
@@ -347,6 +394,32 @@ class CollaborationController:
             self.database.save_task(verified, expected_revision=verified.revision)
             return self.database.get("task", task.id, Task)
         return self.scheduler.transition(task.id, TaskStatus.INTEGRATED, actor_id="controller")
+
+    async def _execute_with_heartbeat(
+        self,
+        task_id: str,
+        actor_id: str,
+        fencing_token: int,
+        request: ProviderRequest,
+        provider: Provider,
+    ) -> Any:
+        interval = max(1, self.policy.policy.heartbeat_seconds)
+
+        async def renew() -> None:
+            while True:
+                await asyncio.sleep(interval)
+                try:
+                    self.scheduler.heartbeat(task_id, actor_id, fencing_token)
+                except Exception:
+                    return
+
+        heartbeat_task = asyncio.create_task(renew())
+        try:
+            return await self.providers[provider].execute(request)
+        finally:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
 
     def _work_prompt(self, task: Task, run: Run, context_artifact: str, modifying: bool) -> str:
         mode = (
@@ -385,7 +458,7 @@ class CollaborationController:
         }
 
     async def _cross_review(
-        self, task: Task, run: Run, workspace: Path, worker_output: str
+        self, task: Task, run: Run, workspace: Path, worker_output: str, base_revision: str
     ) -> Review:
         reviewer_provider = (
             Provider.CLAUDE if task.owner_provider == Provider.CODEX else Provider.CODEX
@@ -397,7 +470,7 @@ class CollaborationController:
             import subprocess
 
             diff = subprocess.run(
-                ["git", "diff", "--no-ext-diff", run.base_revision, "--"],
+                ["git", "diff", "--no-ext-diff", base_revision, "--"],
                 cwd=workspace,
                 text=True,
                 capture_output=True,
@@ -408,8 +481,8 @@ class CollaborationController:
             "Do not modify files or delegate. Check correctness, regressions, security, "
             "and every acceptance item.\n\n"
             f"Task: {task.description}\nAcceptance: {task.acceptance_ids}\n"
-            f"Candidate hash: {task.candidate_hash}\nWorker report:\n{worker_output}\n"
-            f"Candidate diff:\n{diff[:200000]}"
+            f"Candidate hash: {task.candidate_hash}\nWorker report:\n{redact_text(worker_output)}\n"
+            f"Candidate diff:\n{redact_text(diff[:200000])}"
         )
         result = await self.providers[reviewer_provider].execute(
             ProviderRequest(
@@ -591,6 +664,10 @@ class CollaborationController:
                             return await self.execute_task(task.id)
                         async with modifying_semaphore:
                             return await self.execute_task(task.id)
+                except LeaseError:
+                    # Another executor already owns this task's lease; this is
+                    # dispatch contention, not a task failure.
+                    return self.database.get("task", task.id, Task)
                 except Exception as error:
                     current = self.database.get("task", task.id, Task)
                     self._publish_failure(
@@ -622,25 +699,26 @@ class CollaborationController:
                         current_run.status = RunStatus.BLOCKED
                         self.database.save_run(current_run, expected_revision=current_run.revision)
                         return self.database.get("run", run.id, Run)
+                self.scheduler.reconcile_expired()
                 self.scheduler.refresh_ready(run.project_id, run.id)
                 tasks = self.database.list("task", Task, project_id=run.project_id, run_id=run.id)
                 ready = [task for task in tasks if task.status == TaskStatus.READY]
                 if ready:
                     await asyncio.gather(*(bounded(task) for task in ready))
                     continue
-                if any(task.status == TaskStatus.CHANGES_REQUESTED for task in tasks):
-                    for task in tasks:
-                        if task.status == TaskStatus.CHANGES_REQUESTED and task.attempt < 2:
-                            self.scheduler.transition(
-                                task.id, TaskStatus.READY, actor_id="controller"
-                            )
-                    if any(
-                        task.attempt < 2
-                        for task in tasks
-                        if task.status == TaskStatus.CHANGES_REQUESTED
-                    ):
+                retried = False
+                for task in tasks:
+                    if task.status not in {TaskStatus.CHANGES_REQUESTED, TaskStatus.RECONCILING}:
                         continue
+                    if task.attempt < 2:
+                        self.scheduler.transition(task.id, TaskStatus.READY, actor_id="controller")
+                        retried = True
+                    elif task.status == TaskStatus.RECONCILING:
+                        self.scheduler.transition(task.id, TaskStatus.FAILED, actor_id="controller")
+                if retried:
+                    continue
                 break
+            run = self.database.get("run", run.id, Run)
             tasks = self.database.list("task", Task, project_id=run.project_id, run_id=run.id)
             covered_acceptance = {
                 acceptance_id

@@ -14,6 +14,16 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _require_tz(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        raise ValueError("timestamps must include a timezone")
+    return value.astimezone(UTC)
+
+
+def _require_tz_optional(value: datetime | None) -> datetime | None:
+    return None if value is None else _require_tz(value)
+
+
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex}"
 
@@ -143,9 +153,7 @@ class Record(StrictModel):
     @field_validator("created_at")
     @classmethod
     def timestamp_has_timezone(cls, value: datetime) -> datetime:
-        if value.tzinfo is None:
-            raise ValueError("timestamps must include a timezone")
-        return value.astimezone(UTC)
+        return _require_tz(value)
 
 
 class Project(StrictModel):
@@ -176,6 +184,13 @@ class Run(Record):
     budget: Budget = Field(default_factory=Budget)
     checks: list[CheckDefinition] = Field(default_factory=list)
     revision: int = 1
+
+    @model_validator(mode="after")
+    def unique_check_ids(self) -> Run:
+        ids = [item.id for item in self.checks]
+        if len(ids) != len(set(ids)):
+            raise ValueError("check definition IDs must be unique within a run")
+        return self
 
 
 class Task(Record):
@@ -210,6 +225,16 @@ class Lease(Record):
     heartbeat_at: datetime = Field(default_factory=utc_now)
     revoked_at: datetime | None = None
 
+    @field_validator("expires_at", "heartbeat_at")
+    @classmethod
+    def _validate_required_tz(cls, value: datetime) -> datetime:
+        return _require_tz(value)
+
+    @field_validator("revoked_at")
+    @classmethod
+    def _validate_optional_tz(cls, value: datetime | None) -> datetime | None:
+        return _require_tz_optional(value)
+
 
 class Session(Record):
     provider: Provider
@@ -230,6 +255,11 @@ class Capability(StrictModel):
     features: dict[str, CapabilityStatus] = Field(default_factory=dict)
     observed_at: datetime = Field(default_factory=utc_now)
     detail: str | None = None
+
+    @field_validator("observed_at")
+    @classmethod
+    def _validate_tz(cls, value: datetime) -> datetime:
+        return _require_tz(value)
 
 
 class Artifact(Record):
@@ -291,6 +321,11 @@ class Authorization(Record):
     expires_at: datetime
     granted_by: str
 
+    @field_validator("expires_at")
+    @classmethod
+    def _validate_tz(cls, value: datetime) -> datetime:
+        return _require_tz(value)
+
 
 class Decision(Record):
     question: str
@@ -328,6 +363,11 @@ class Message(Record):
     causation_id: str | None = None
     references: list[str] = Field(default_factory=list)
     acknowledged_at: datetime | None = None
+
+    @field_validator("acknowledged_at")
+    @classmethod
+    def _validate_tz(cls, value: datetime | None) -> datetime | None:
+        return _require_tz_optional(value)
 
 
 class Usage(Record):
