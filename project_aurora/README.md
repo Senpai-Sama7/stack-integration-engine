@@ -1,33 +1,49 @@
 # Project Aurora
 
-A small, original Godot 4 prototype for a local platform-fighter vertical slice inspired by the superpower archetypes of Marvel and DC characters. This repository is a clean-room prototype using the project’s own assets, code, and design rules.
+Original Godot 4 local-fighter prototype with deterministic 60 Hz combat simulation.
 
-## What is included
+## Requirements
 
-- an executable Godot 4 project scaffold
-- a main game scene and prototype match loop
-- a local input router
-- a basic fighter model
-- damage, stock, and respawn logic
-- placeholder stage and fighter data files
-- smoke-test and verification script
+- Godot 4.2+ available as `godot4` (or `godot`)
 
-## Quick start
+## Run the game
 
-1. Open this directory in Godot 4.
-2. Load the project.
-3. Press F5 or use the Godot run button.
-4. Use `A/D` to move, `W` to jump, `J` to light attack, `K` to heavy attack, `L` to special, and `S` to shield.
+```bash
+godot4 --path project_aurora
+```
 
-## Included fighters
+If your binary is named `godot`, use:
 
-- Captain America
-- Batman
+```bash
+godot --path project_aurora
+```
 
-## Included stage
+## Run headless gameplay tests
 
-- Aegis Rooftop
+```bash
+godot4 --headless --path project_aurora --script res://tests/run_tests.gd
+```
 
-## Notes
+## Headless project-load validation
 
-This is a prototype skeleton, not a finished commercial game. It is intentionally small, readable, and extension-friendly so that gameplay systems can be expanded and verified.
+```bash
+godot4 --headless --path project_aurora --quit
+```
+
+## Controls
+
+Player 1:
+- `A` / `D`: move
+- `W`: jump
+- `J`: light
+- `K`: heavy
+- `L`: special
+- `S`: shield
+
+Player 2:
+- `Left` / `Right`: move
+- `Up`: jump
+- `,`: light
+- `.`: heavy
+- `/`: special
+- `Down`: shield
