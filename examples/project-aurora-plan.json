@@ -1,0 +1,128 @@
+{
+  "objective": "Build the first verified Project Aurora vertical slice: an original Godot 4 local platform-fighter prototype with authorized Marvel/DC character references, deterministic movement and combat, two local players, one original stage, stocks, respawn, and headless validation.",
+  "acceptance": [
+    "REQ-DESIGN-BASELINE",
+    "REQ-FOUNDATION",
+    "REQ-MOVEMENT",
+    "REQ-COMBAT",
+    "REQ-CHARACTERS",
+    "REQ-STAGE",
+    "REQ-VERTICAL-SLICE",
+    "REQ-TEST-COVERAGE",
+    "REQ-CLEAN-CHECKOUT"
+  ],
+  "scope_paths": [
+    "project.godot",
+    "README.md",
+    "docs",
+    "scenes",
+    "scripts",
+    "data",
+    "tests",
+    "tools"
+  ],
+  "tasks": [
+    {
+      "id": "design-baseline",
+      "description": "Read docs/design and confirm the design baseline. Identify contradictions or missing implementation decisions. Do not modify source code; record blocking issues in docs/design/DESIGN_REVIEW.md.",
+      "provider": "codex",
+      "side_effect": "read_only",
+      "acceptance_ids": ["REQ-DESIGN-BASELINE"]
+    },
+    {
+      "id": "foundation",
+      "description": "Implement the Godot project foundation, main scene, match lifecycle, input abstraction, pause, restart, and debug state display. Follow docs/design/TECHNICAL_ARCHITECTURE.md and docs/design/TESTING_STRATEGY.md.",
+      "provider": "codex",
+      "dependencies": ["design-baseline"],
+      "side_effect": "worktree_write",
+      "allowed_paths": ["project.godot", "README.md", "scenes", "scripts/core", "scripts/input", "scripts/ui", "tests"],
+      "acceptance_ids": ["REQ-FOUNDATION", "REQ-TEST-COVERAGE", "REQ-CLEAN-CHECKOUT"]
+    },
+    {
+      "id": "foundation-review",
+      "description": "Review the foundation implementation against the architecture and testing specifications. Identify lifecycle, input, pause, restart, resource-loading, and test gaps.",
+      "provider": "claude",
+      "dependencies": ["foundation"],
+      "side_effect": "read_only",
+      "acceptance_ids": ["REQ-FOUNDATION", "REQ-TEST-COVERAGE"]
+    },
+    {
+      "id": "movement",
+      "description": "Implement fixed-step movement, jumping, gravity, air control, fast fall, landing, coyote time, input buffering, facing, and movement locks according to docs/design/MOVEMENT_SPEC.md.",
+      "provider": "claude",
+      "dependencies": ["foundation-review"],
+      "side_effect": "worktree_write",
+      "allowed_paths": ["scripts/movement", "scripts/input", "scripts/core", "scenes/characters", "data/characters", "tests"],
+      "acceptance_ids": ["REQ-MOVEMENT", "REQ-TEST-COVERAGE"]
+    },
+    {
+      "id": "movement-review",
+      "description": "Independently review movement timing, state transitions, collision edge cases, frame-rate dependence, and deterministic tests against docs/design/MOVEMENT_SPEC.md.",
+      "provider": "codex",
+      "dependencies": ["movement"],
+      "side_effect": "read_only",
+      "acceptance_ids": ["REQ-MOVEMENT", "REQ-TEST-COVERAGE"]
+    },
+    {
+      "id": "combat",
+      "description": "Implement data-driven attacks, hitboxes, hurtboxes, damage, knockback, hitstun, shielding, grabs, invulnerability, blast-zone handling, stocks, and respawn according to docs/design/COMBAT_SPEC.md.",
+      "provider": "codex",
+      "dependencies": ["movement-review"],
+      "side_effect": "worktree_write",
+      "allowed_paths": ["scripts/combat", "scripts/movement", "scripts/core", "scenes/characters", "data/characters", "data/attacks", "tests"],
+      "acceptance_ids": ["REQ-COMBAT", "REQ-TEST-COVERAGE"]
+    },
+    {
+      "id": "combat-review",
+      "description": "Review combat resolution, simultaneous hits, repeated-hit prevention, shield and grab rules, knockback, hitstun, stocks, respawn, and match completion.",
+      "provider": "claude",
+      "dependencies": ["combat"],
+      "side_effect": "read_only",
+      "acceptance_ids": ["REQ-COMBAT", "REQ-TEST-COVERAGE"]
+    },
+    {
+      "id": "characters-and-stage",
+      "description": "Implement Captain America and Batman prototype data/resources and the original Aegis Rooftop stage. Keep global simulation rules generic and put character-specific behavior behind validated data or isolated scripts.",
+      "provider": "claude",
+      "dependencies": ["combat-review"],
+      "side_effect": "worktree_write",
+      "allowed_paths": ["data", "scenes/characters", "scenes/stages", "scripts/stages", "scripts/combat", "scripts/movement", "tests"],
+      "acceptance_ids": ["REQ-CHARACTERS", "REQ-STAGE", "REQ-TEST-COVERAGE"]
+    },
+    {
+      "id": "vertical-slice",
+      "description": "Integrate two local players, character selection or configured fighter loading, Aegis Rooftop, camera, HUD, stocks, respawn, pause, restart, debug hitboxes, and a launchable main scene.",
+      "provider": "codex",
+      "dependencies": ["characters-and-stage"],
+      "side_effect": "worktree_write",
+      "allowed_paths": ["scenes", "scripts", "data", "tests", "README.md", "docs/evidence"],
+      "acceptance_ids": ["REQ-VERTICAL-SLICE", "REQ-CLEAN-CHECKOUT"]
+    },
+    {
+      "id": "final-verification",
+      "description": "Run the complete test suite and headless validation. Verify the clean-checkout path, missing-resource behavior, deterministic simulation, match lifecycle, and documented limitations. Do not modify gameplay code.",
+      "provider": "claude",
+      "dependencies": ["vertical-slice"],
+      "side_effect": "read_only",
+      "acceptance_ids": ["REQ-FOUNDATION", "REQ-MOVEMENT", "REQ-COMBAT", "REQ-CHARACTERS", "REQ-STAGE", "REQ-VERTICAL-SLICE", "REQ-TEST-COVERAGE", "REQ-CLEAN-CHECKOUT"]
+    }
+  ],
+  "checks": [
+    {
+      "id": "project-tests",
+      "name": "Project automated tests",
+      "command": ["godot", "--headless", "--path", ".", "-s", "res://tests/run_tests.gd"],
+      "timeout_seconds": 900,
+      "required": true,
+      "expects_tests": true
+    },
+    {
+      "id": "godot-project-load",
+      "name": "Godot headless project load",
+      "command": ["godot", "--headless", "--path", ".", "--editor", "--quit"],
+      "timeout_seconds": 300,
+      "required": true,
+      "expects_tests": false
+    }
+  ]
+}
