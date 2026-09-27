@@ -1,0 +1,21 @@
+; Engine configuration for the Project Aurora prototype.
+
+config_version=5
+
+[application]
+config/name="Project Aurora"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.2")
+
+[display]
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="viewport"
+window/stretch/aspect="keep"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+
+[physics]
+common/physics_ticks_per_second=60

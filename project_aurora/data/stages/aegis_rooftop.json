@@ -1,0 +1,20 @@
+{
+  "name": "Aegis Rooftop",
+  "display_name": "Aegis Rooftop",
+  "platforms": [
+    {"x": 0, "y": 180, "width": 880, "height": 24, "type": "ground"},
+    {"x": -280, "y": 120, "width": 220, "height": 20, "type": "platform"},
+    {"x": 280, "y": 120, "width": 220, "height": 20, "type": "platform"},
+    {"x": 0, "y": 60, "width": 200, "height": 18, "type": "platform"}
+  ],
+  "blast_zones": {
+    "left": -640,
+    "right": 640,
+    "top": -200,
+    "bottom": 500
+  },
+  "spawn_points": [
+    {"x": -180, "y": 0},
+    {"x": 180, "y": 0}
+  ]
+}
