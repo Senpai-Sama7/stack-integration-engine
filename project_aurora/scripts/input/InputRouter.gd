@@ -1,87 +1,87 @@
-extends CharacterBody2D
-class_name Fighter
+extends RefCounted
+class_name InputRouter
 
-const GRAVITY := 1550.0
-const MOVE_SPEED := 220.0
-const JUMP_FORCE := 540.0
-const FLOOR_Y := 180.0
+const EMPTY_ACTIONS := {
+	"left": false,
+	"right": false,
+	"jump": false,
+	"light": false,
+	"heavy": false,
+	"special": false,
+	"shield": false,
+}
 
-@export var fighter_name: String = "Fighter"
-@export var color: Color = Color.WHITE
-@export var stocks: int = 3
-@export var damage: float = 0.0
-@export var invulnerable_ticks: int = 0
-@export var hitstun_ticks: int = 0
+var state: Dictionary = {
+	"P1": EMPTY_ACTIONS.duplicate(true),
+	"P2": EMPTY_ACTIONS.duplicate(true),
+}
 
-var facing: int = 1
-var is_grounded: bool = true
+func handle_event(event: InputEvent) -> void:
+	if not (event is InputEventKey):
+		return
+	if event.is_echo():
+		return
 
-func initialize(name_value: String, spawn_position: Vector2, tint: Color) -> void:
-    fighter_name = name_value
-    color = tint
-    global_position = spawn_position
-    _draw_body()
+	var key := event.physical_keycode
+	var pressed := event.pressed
+	_apply_key("P1", key, pressed)
+	_apply_key("P2", key, pressed)
 
-func _draw_body() -> void:
-    if has_node("Body"):
-        $Body.color = color
+func update_state_from_keyboard() -> void:
+	state["P1"] = {
+		"left": Input.is_key_pressed(KEY_A),
+		"right": Input.is_key_pressed(KEY_D),
+		"jump": Input.is_key_pressed(KEY_W),
+		"light": Input.is_key_pressed(KEY_J),
+		"heavy": Input.is_key_pressed(KEY_K),
+		"special": Input.is_key_pressed(KEY_L),
+		"shield": Input.is_key_pressed(KEY_S),
+	}
+	state["P2"] = {
+		"left": Input.is_key_pressed(KEY_LEFT),
+		"right": Input.is_key_pressed(KEY_RIGHT),
+		"jump": Input.is_key_pressed(KEY_UP),
+		"light": Input.is_key_pressed(KEY_COMMA),
+		"heavy": Input.is_key_pressed(KEY_PERIOD),
+		"special": Input.is_key_pressed(KEY_SLASH),
+		"shield": Input.is_key_pressed(KEY_DOWN),
+	}
 
-func update(actions: Dictionary, delta: float) -> void:
-    if hitstun_ticks > 0:
-        hitstun_ticks -= 1
-    if invulnerable_ticks > 0:
-        invulnerable_ticks -= 1
+func read_actions(player_id: String) -> Dictionary:
+	if not state.has(player_id):
+		return EMPTY_ACTIONS.duplicate(true)
+	return state[player_id].duplicate(true)
 
-    var move_input := 0.0
-    if actions.get("left", false):
-        move_input -= 1.0
-    if actions.get("right", false):
-        move_input += 1.0
-    if move_input != 0.0:
-        facing = 1 if move_input > 0.0 else -1
-
-    var target_velocity_x := move_input * MOVE_SPEED
-    velocity.x = move_toward(velocity.x, target_velocity_x, 2400.0 * delta)
-
-    if is_grounded and actions.get("jump", false):
-        velocity.y = -JUMP_FORCE
-        is_grounded = false
-
-    if not is_grounded:
-        velocity.y += GRAVITY * delta
-
-    move_and_slide()
-
-    if is_on_floor():
-        velocity.y = 0.0
-        is_grounded = true
-
-    if global_position.y >= FLOOR_Y:
-        global_position.y = FLOOR_Y
-        velocity.y = 0.0
-        is_grounded = true
-
-    if global_position.y > 430.0:
-        resolve_stock_loss()
-
-func resolve_stock_loss() -> void:
-    if stocks <= 0:
-        return
-    stocks -= 1
-    damage = 0.0
-    velocity = Vector2.ZERO
-    is_grounded = true
-    invulnerable_ticks = 30
-    hitstun_ticks = 0
-    global_position = Vector2(-180.0 if fighter_name == "Captain America" else 180.0, 0.0)
-
-func take_damage(amount: float, knockback: Vector2) -> void:
-    if invulnerable_ticks > 0:
-        return
-    damage += amount
-    velocity += knockback
-    hitstun_ticks = 8
-    invulnerable_ticks = 12
-
-func _draw() -> void:
-    draw_rect(Rect2(-16, -26, 32, 52), color)
+func _apply_key(player_id: String, key: Key, pressed: bool) -> void:
+	if player_id == "P1":
+		match key:
+			KEY_A:
+				state[player_id]["left"] = pressed
+			KEY_D:
+				state[player_id]["right"] = pressed
+			KEY_W:
+				state[player_id]["jump"] = pressed
+			KEY_J:
+				state[player_id]["light"] = pressed
+			KEY_K:
+				state[player_id]["heavy"] = pressed
+			KEY_L:
+				state[player_id]["special"] = pressed
+			KEY_S:
+				state[player_id]["shield"] = pressed
+	elif player_id == "P2":
+		match key:
+			KEY_LEFT:
+				state[player_id]["left"] = pressed
+			KEY_RIGHT:
+				state[player_id]["right"] = pressed
+			KEY_UP:
+				state[player_id]["jump"] = pressed
+			KEY_COMMA:
+				state[player_id]["light"] = pressed
+			KEY_PERIOD:
+				state[player_id]["heavy"] = pressed
+			KEY_SLASH:
+				state[player_id]["special"] = pressed
+			KEY_DOWN:
+				state[player_id]["shield"] = pressed

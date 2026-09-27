@@ -1,4 +1,10 @@
-[gd_scene format=3]
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_1"]
+size = Vector2(1200, 48)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2"]
+size = Vector2(240, 18)
 
 [node name="Stage" type="Node2D"]
 
@@ -31,9 +37,3 @@ shape = SubResource("RectangleShape2D_2")
 [node name="Visual" type="Polygon2D" parent="PlatformRight"]
 polygon = PackedVector2Array(-120, 0, 120, 0, 120, 18, -120, 18)
 color = Color(0.30, 0.34, 0.42, 1)
-
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_1"]
-size = Vector2(1200, 48)
-
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_2"]
-size = Vector2(240, 18)

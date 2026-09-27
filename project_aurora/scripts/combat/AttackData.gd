@@ -1,64 +1,43 @@
 extends RefCounted
-class_name InputRouter
+class_name AttackData
 
-var input_state: Dictionary = {
-    "Captain America": {
-        "move_left": false,
-        "move_right": false,
-        "jump": false,
-        "light_attack": false,
-        "heavy_attack": false,
-        "special": false,
-        "shield": false,
-    },
-    "Batman": {
-        "move_left": false,
-        "move_right": false,
-        "jump": false,
-        "light_attack": false,
-        "heavy_attack": false,
-        "special": false,
-        "shield": false,
-    },
-}
+var attack_id: StringName
+var startup_ticks: int
+var active_ticks: int
+var recovery_ticks: int
+var damage: float
+var knockback: Vector2
+var hitstun_ticks: int
+var hitbox_size: Vector2
+var hitbox_offset: Vector2
+var one_hit_per_target: bool
 
-func handle_event(event: InputEvent) -> void:
-    if event is InputEventKey:
-        var key := event.physical_keycode
-        var pressed := event.pressed
+func _init(
+	id_value: StringName,
+	startup_value: int,
+	active_value: int,
+	recovery_value: int,
+	damage_value: float,
+	knockback_value: Vector2,
+	hitstun_value: int,
+	hitbox_size_value: Vector2,
+	hitbox_offset_value: Vector2,
+	one_hit_per_target_value: bool = true
+) -> void:
+	attack_id = id_value
+	startup_ticks = startup_value
+	active_ticks = active_value
+	recovery_ticks = recovery_value
+	damage = damage_value
+	knockback = knockback_value
+	hitstun_ticks = hitstun_value
+	hitbox_size = hitbox_size_value
+	hitbox_offset = hitbox_offset_value
+	one_hit_per_target = one_hit_per_target_value
 
-        match key:
-            KEY_A:
-                input_state["Captain America"]["move_left"] = pressed
-            KEY_D:
-                input_state["Captain America"]["move_right"] = pressed
-            KEY_W:
-                input_state["Captain America"]["jump"] = pressed
-            KEY_J:
-                input_state["Captain America"]["light_attack"] = pressed
-            KEY_K:
-                input_state["Captain America"]["heavy_attack"] = pressed
-            KEY_L:
-                input_state["Captain America"]["special"] = pressed
-            KEY_S:
-                input_state["Captain America"]["shield"] = pressed
-
-            KEY_LEFT:
-                input_state["Batman"]["move_left"] = pressed
-            KEY_RIGHT:
-                input_state["Batman"]["move_right"] = pressed
-            KEY_UP:
-                input_state["Batman"]["jump"] = pressed
-            KEY_COMMA:
-                input_state["Batman"]["light_attack"] = pressed
-            KEY_PERIOD:
-                input_state["Batman"]["heavy_attack"] = pressed
-            KEY_SLASH:
-                input_state["Batman"]["special"] = pressed
-            KEY_DOWN:
-                input_state["Batman"]["shield"] = pressed
-
-func read_actions(fighter_name: String) -> Dictionary:
-    if input_state.has(fighter_name):
-        return input_state[fighter_name]
-    return {}
+static func default_attack_map() -> Dictionary:
+	return {
+		"light": AttackData.new("light", 2, 2, 4, 6.0, Vector2(260.0, -130.0), 12, Vector2(42.0, 26.0), Vector2(28.0, -4.0), true),
+		"heavy": AttackData.new("heavy", 4, 3, 7, 12.0, Vector2(380.0, -180.0), 18, Vector2(54.0, 34.0), Vector2(34.0, -6.0), true),
+		"special": AttackData.new("special", 6, 4, 10, 16.0, Vector2(470.0, -210.0), 24, Vector2(66.0, 36.0), Vector2(40.0, -8.0), true),
+	}
