@@ -1,49 +1,79 @@
-"""Main orchestration engine."""
+"""Typed compatibility workflow dispatcher.
 
-import logging
+This lightweight interface remains for callers of the original package. New
+two-team workflows use :class:`CollaborationController`, while this dispatcher
+ensures an unknown or failed step can never be reported as successful.
+"""
+
+from __future__ import annotations
+
+import inspect
+import time
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from stack_integration.core.types import (
-    TaskResult,
-    TaskStatus,
-    WorkflowDefinition,
-)
+from stack_integration.core.types import TaskResult, TaskStatus, WorkflowDefinition
 
-logger = logging.getLogger(__name__)
+StepHandler = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any] | Awaitable[dict[str, Any]]]
+
+
+class UnknownStepError(ValueError):
+    pass
 
 
 class Orchestrator:
-    """Main orchestration engine."""
+    def __init__(self) -> None:
+        self.handlers: dict[str, StepHandler] = {}
 
-    def __init__(self):
-        self.workflows: Dict[str, WorkflowDefinition] = {}
-        self.logger = logger
+    def register(self, step_type: str, handler: StepHandler) -> None:
+        if not step_type or step_type in self.handlers:
+            raise ValueError(f"invalid or duplicate step handler: {step_type!r}")
+        self.handlers[step_type] = handler
 
     async def execute_workflow(
         self,
         workflow: WorkflowDefinition,
-        initial_state: Optional[Dict[str, Any]] = None,
-    ) -> List[TaskResult]:
-        """Execute a workflow end-to-end."""
-        execution_id = str(uuid.uuid4())
-        state = initial_state or {}
-        results: List[TaskResult] = []
-
-        self.logger.info(f"Started workflow {workflow.id}")
-
-        for i, step in enumerate(workflow.steps):
+        initial_state: dict[str, Any] | None = None,
+    ) -> list[TaskResult]:
+        state = dict(initial_state or {})
+        results: list[TaskResult] = []
+        for index, step in enumerate(workflow.steps):
             task_id = str(uuid.uuid4())
             step_type = step.get("type")
-            self.logger.info(f"Executing step {i + 1}: {step_type}")
-
-            result = TaskResult(
-                task_id=task_id,
-                status=TaskStatus.SUCCESS,
-                output={"step": i, "type": step_type},
-            )
-            results.append(result)
-
-        self.logger.info(f"Workflow {workflow.id} completed")
+            started = time.monotonic()
+            if not isinstance(step_type, str) or step_type not in self.handlers:
+                results.append(
+                    TaskResult(
+                        task_id=task_id,
+                        status=TaskStatus.FAILED,
+                        error=f"unknown workflow step type: {step_type!r}",
+                        duration_ms=(time.monotonic() - started) * 1000,
+                    )
+                )
+                break
+            try:
+                value = self.handlers[step_type](step, state)
+                output = await value if inspect.isawaitable(value) else value
+                if not isinstance(output, dict):
+                    raise TypeError("step handler must return a dictionary")
+                state.update(output.get("state", {}))
+                results.append(
+                    TaskResult(
+                        task_id=task_id,
+                        status=TaskStatus.SUCCESS,
+                        output={"step": index, "type": step_type, **output},
+                        duration_ms=(time.monotonic() - started) * 1000,
+                    )
+                )
+            except Exception as error:
+                results.append(
+                    TaskResult(
+                        task_id=task_id,
+                        status=TaskStatus.FAILED,
+                        error=f"{type(error).__name__}: {error}",
+                        duration_ms=(time.monotonic() - started) * 1000,
+                    )
+                )
+                break
         return results

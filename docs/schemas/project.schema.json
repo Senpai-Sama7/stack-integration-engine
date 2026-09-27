@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "context_policy": {
+      "const": "project_only",
+      "default": "project_only",
+      "title": "Context Policy",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "git_common_dir": {
+      "title": "Git Common Dir",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "revision": {
+      "default": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "root": {
+      "title": "Root",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "root",
+    "git_common_dir"
+  ],
+  "title": "Project",
+  "type": "object"
+}

@@ -1,16 +1,19 @@
 """Event bus for cross-service communication."""
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
-from enum import Enum
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Types of events in the system."""
+
     WORKFLOW_STARTED = "workflow.started"
     WORKFLOW_COMPLETED = "workflow.completed"
     WORKFLOW_FAILED = "workflow.failed"
@@ -23,19 +26,20 @@ class EventType(str, Enum):
 
 class Event(BaseModel):
     """Base event model."""
+
     type: EventType
     source: str
     timestamp: datetime
-    payload: Dict[str, Any]
-    correlation_id: Optional[str] = None
+    payload: dict[str, Any]
+    correlation_id: str | None = None
 
 
 class EventBus:
     """Event bus for system-wide messaging."""
 
     def __init__(self):
-        self.subscribers: Dict[str, List[Callable]] = {}
-        self.event_log: List[Event] = []
+        self.subscribers: dict[str, list[Callable]] = {}
+        self.event_log: list[Event] = []
         self.logger = logger
 
     def subscribe(self, event_type: EventType, handler: Callable) -> None:
@@ -60,10 +64,10 @@ class EventBus:
 
     def get_events(
         self,
-        event_type: Optional[EventType] = None,
-        source: Optional[str] = None,
+        event_type: EventType | None = None,
+        source: str | None = None,
         limit: int = 100,
-    ) -> List[Event]:
+    ) -> list[Event]:
         """Query event log."""
         events = self.event_log
         if event_type:

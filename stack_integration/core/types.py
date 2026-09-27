@@ -1,12 +1,17 @@
 """Shared types for integration."""
 
-from enum import Enum
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
-class TaskStatus(str, Enum):
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+class TaskStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -15,7 +20,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class RiskTier(str, Enum):
+class RiskTier(StrEnum):
     READ_ONLY = "read_only"
     WRITE = "write"
     DEPLOY = "deploy"
@@ -23,7 +28,7 @@ class RiskTier(str, Enum):
     DELETE = "delete"
 
 
-class GateDecision(str, Enum):
+class GateDecision(StrEnum):
     APPROVE = "approve"
     DEFER = "defer"
     REFUSE = "refuse"
@@ -34,7 +39,7 @@ class EvidencePointer(BaseModel):
     source: str
     source_confidence: float = Field(ge=0.0, le=1.0)
     evidence_hash: str = ""
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
 
 
 class Uncertainty(BaseModel):
@@ -47,37 +52,37 @@ class Uncertainty(BaseModel):
 class Claim(BaseModel):
     statement: str
     claim_type: str
-    evidence_pointers: List[EvidencePointer] = Field(default_factory=list)
-    uncertainty: Optional[Uncertainty] = None
+    evidence_pointers: list[EvidencePointer] = Field(default_factory=list)
+    uncertainty: Uncertainty | None = None
     risk_tier: RiskTier = RiskTier.READ_ONLY
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
 
 
 class ClaimBundle(BaseModel):
     id: str = Field(default_factory=lambda: __import__("uuid").uuid4().hex)
     origin_agent: str
-    claims: List[Claim] = Field(default_factory=list)
+    claims: list[Claim] = Field(default_factory=list)
     decision: GateDecision = GateDecision.DEFER
     reason: str = ""
-    audit_trail: List[Dict[str, Any]] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    expires_at: Optional[datetime] = None
+    audit_trail: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime | None = None
 
 
 class TaskResult(BaseModel):
     task_id: str
     status: TaskStatus
-    output: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    claims: Optional[ClaimBundle] = None
+    output: dict[str, Any] | None = None
+    error: str | None = None
+    claims: ClaimBundle | None = None
     duration_ms: float = 0.0
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
 
 
 class WorkflowDefinition(BaseModel):
     id: str
     name: str
     description: str
-    steps: List[Dict[str, Any]]
+    steps: list[dict[str, Any]]
     version: str = "1.0"
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)

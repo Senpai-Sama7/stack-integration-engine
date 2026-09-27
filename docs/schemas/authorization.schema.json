@@ -1,0 +1,109 @@
+{
+  "$defs": {
+    "SideEffect": {
+      "enum": [
+        "read_only",
+        "worktree_write",
+        "repository_write",
+        "process",
+        "network",
+        "push",
+        "deploy",
+        "delete",
+        "privilege"
+      ],
+      "title": "SideEffect",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "actions": {
+      "items": {
+        "$ref": "#/$defs/SideEffect"
+      },
+      "title": "Actions",
+      "type": "array"
+    },
+    "actor_id": {
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "candidate_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Candidate Hash"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "granted_by": {
+      "title": "Granted By",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Scope Paths",
+      "type": "array"
+    },
+    "scope_version": {
+      "minimum": 1,
+      "title": "Scope Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "actor_id",
+    "actions",
+    "scope_paths",
+    "scope_version",
+    "expires_at",
+    "granted_by"
+  ],
+  "title": "Authorization",
+  "type": "object"
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "observed_date": "2026-09-15",
+  "candidate": "working tree prior to release commit",
+  "task": "Read only pyproject.toml and identify one concrete packaging fact.",
+  "codex": {
+    "cli_version": "codex-cli 0.154.0",
+    "status": "completed",
+    "finding": "The package requires Python 3.11 or newer.",
+    "evidence": "project.requires-python = \">=3.11\"",
+    "duration_ms": 38754,
+    "structured_output_valid": true
+  },
+  "claude": {
+    "cli_version": "2.1.267 (Claude Code)",
+    "status": "completed",
+    "finding": "The package requires Python 3.11 or newer.",
+    "evidence": "project.requires-python = \">=3.11\"",
+    "duration_ms": 84647,
+    "structured_output_valid": true
+  },
+  "interpretation": "This demonstrates live structured CLI compatibility only. Provider agreement is not independent verification."
+}
