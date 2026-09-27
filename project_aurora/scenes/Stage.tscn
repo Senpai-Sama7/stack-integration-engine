@@ -1,0 +1,39 @@
+[gd_scene format=3]
+
+[node name="Stage" type="Node2D"]
+
+[node name="Ground" type="StaticBody2D" parent="."]
+position = Vector2(0, 180)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Ground"]
+shape = SubResource("RectangleShape2D_1")
+
+[node name="GroundVisual" type="Polygon2D" parent="Ground"]
+polygon = PackedVector2Array(-600, 0, 600, 0, 600, 48, -600, 48)
+color = Color(0.22, 0.23, 0.28, 1)
+
+[node name="PlatformLeft" type="StaticBody2D" parent="."]
+position = Vector2(-280, 120)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="PlatformLeft"]
+shape = SubResource("RectangleShape2D_2")
+
+[node name="Visual" type="Polygon2D" parent="PlatformLeft"]
+polygon = PackedVector2Array(-120, 0, 120, 0, 120, 18, -120, 18)
+color = Color(0.30, 0.34, 0.42, 1)
+
+[node name="PlatformRight" type="StaticBody2D" parent="."]
+position = Vector2(280, 120)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="PlatformRight"]
+shape = SubResource("RectangleShape2D_2")
+
+[node name="Visual" type="Polygon2D" parent="PlatformRight"]
+polygon = PackedVector2Array(-120, 0, 120, 0, 120, 18, -120, 18)
+color = Color(0.30, 0.34, 0.42, 1)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_1"]
+size = Vector2(1200, 48)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2"]
+size = Vector2(240, 18)

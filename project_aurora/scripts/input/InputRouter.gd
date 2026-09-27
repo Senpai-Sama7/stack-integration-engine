@@ -1,88 +1,87 @@
-extends RefCounted
+extends CharacterBody2D
 class_name Fighter
 
-const ATTACK_NAMES := ["light", "heavy", "special"]
+const GRAVITY := 1550.0
+const MOVE_SPEED := 220.0
+const JUMP_FORCE := 540.0
+const FLOOR_Y := 180.0
 
-var name: String
-var color: Color
-var position: Vector2 = Vector2.ZERO
-var velocity: Vector2 = Vector2.ZERO
-var facing := 1.0
-var stocks := 3
-var damage := 0.0
-var is_grounded := true
-var is_hitstunned := false
-var invulnerable_ticks := 0
-var attack_queue: Array = []
+@export var fighter_name: String = "Fighter"
+@export var color: Color = Color.WHITE
+@export var stocks: int = 3
+@export var damage: float = 0.0
+@export var invulnerable_ticks: int = 0
+@export var hitstun_ticks: int = 0
 
-func _init(fighter_name: String, spawn_position: Vector2, fighter_color: Color) -> void:
-    name = fighter_name
-    position = spawn_position
-    color = fighter_color
+var facing: int = 1
+var is_grounded: bool = true
 
-func reset_to_spawn() -> void:
-    position = Vector2(position.x, 0.0)
-    velocity = Vector2.ZERO
-    damage = 0.0
-    is_grounded = true
-    is_hitstunned = false
-    invulnerable_ticks = 0
-    attack_queue.clear()
+func initialize(name_value: String, spawn_position: Vector2, tint: Color) -> void:
+    fighter_name = name_value
+    color = tint
+    global_position = spawn_position
+    _draw_body()
 
-func update(actions: Dictionary, _delta: float) -> void:
-    if is_hitstunned:
-        return
+func _draw_body() -> void:
+    if has_node("Body"):
+        $Body.color = color
 
-    if actions.get("move_left", false):
-        velocity.x = -220.0
-        facing = -1.0
-    elif actions.get("move_right", false):
-        velocity.x = 220.0
-        facing = 1.0
-    else:
-        velocity.x = move_toward(velocity.x, 0.0, 240.0)
+func update(actions: Dictionary, delta: float) -> void:
+    if hitstun_ticks > 0:
+        hitstun_ticks -= 1
+    if invulnerable_ticks > 0:
+        invulnerable_ticks -= 1
 
-    if actions.get("jump", false) and is_grounded:
-        velocity.y = -540.0
+    var move_input := 0.0
+    if actions.get("left", false):
+        move_input -= 1.0
+    if actions.get("right", false):
+        move_input += 1.0
+    if move_input != 0.0:
+        facing = 1 if move_input > 0.0 else -1
+
+    var target_velocity_x := move_input * MOVE_SPEED
+    velocity.x = move_toward(velocity.x, target_velocity_x, 2400.0 * delta)
+
+    if is_grounded and actions.get("jump", false):
+        velocity.y = -JUMP_FORCE
         is_grounded = false
 
-    if actions.get("light_attack", false):
-        attack_queue.append("light")
-
-    if actions.get("heavy_attack", false):
-        attack_queue.append("heavy")
-
-    if actions.get("special", false):
-        attack_queue.append("special")
-
     if not is_grounded:
-        velocity.y += 1550.0 * _delta
+        velocity.y += GRAVITY * delta
 
-    position += velocity * _delta
-    if position.y >= 180.0:
-        position.y = 180.0
+    move_and_slide()
+
+    if is_on_floor():
         velocity.y = 0.0
         is_grounded = true
+
+    if global_position.y >= FLOOR_Y:
+        global_position.y = FLOOR_Y
+        velocity.y = 0.0
+        is_grounded = true
+
+    if global_position.y > 430.0:
+        resolve_stock_loss()
+
+func resolve_stock_loss() -> void:
+    if stocks <= 0:
+        return
+    stocks -= 1
+    damage = 0.0
+    velocity = Vector2.ZERO
+    is_grounded = true
+    invulnerable_ticks = 30
+    hitstun_ticks = 0
+    global_position = Vector2(-180.0 if fighter_name == "Captain America" else 180.0, 0.0)
 
 func take_damage(amount: float, knockback: Vector2) -> void:
     if invulnerable_ticks > 0:
         return
     damage += amount
     velocity += knockback
-    is_hitstunned = true
+    hitstun_ticks = 8
     invulnerable_ticks = 12
 
-func resolve_stock_loss() -> void:
-    if position.y > 500.0:
-        stocks -= 1
-        damage = 0.0
-        position = Vector2(position.x * -0.5, 0.0)
-        velocity = Vector2.ZERO
-        is_hitstunned = false
-        invulnerable_ticks = 30
-
-func _process_tick() -> void:
-    if invulnerable_ticks > 0:
-        invulnerable_ticks -= 1
-    if is_hitstunned and invulnerable_ticks <= 0:
-        is_hitstunned = false
+func _draw() -> void:
+    draw_rect(Rect2(-16, -26, 32, 52), color)

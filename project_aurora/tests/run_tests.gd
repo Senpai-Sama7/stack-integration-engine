@@ -1,19 +1,75 @@
-extends SceneTree
+extends RefCounted
+class_name InputRouter
 
-func _initialize() -> void:
-    var game_script = load("res://scripts/core/Game.gd")
-    assert(game_script != null)
+var state: Dictionary = {
+    "P1": {"left": false, "right": false, "jump": false, "light": false, "heavy": false, "special": false, "shield": false},
+    "P2": {"left": false, "right": false, "jump": false, "light": false, "heavy": false, "special": false, "shield": false},
+}
 
-    var state_script = load("res://scripts/core/MatchState.gd")
-    assert(state_script != null)
+func handle_event(event: InputEvent) -> void:
+    if not (event is InputEventKey):
+        return
+    if event.is_echo():
+        return
 
-    var attack_data = load("res://scripts/combat/AttackData.gd").new("light_test", 8.0, 260.0)
-    assert(attack_data.damage == 8.0)
-    assert(attack_data.knockback == 260.0)
+    var key := event.physical_keycode
+    var pressed := event.pressed
+    _apply_key("P1", key, pressed)
+    _apply_key("P2", key, pressed)
 
-    var fighter = load("res://scripts/core/Fighter.gd").new("Test Fighter", Vector2.ZERO, Color(1.0, 1.0, 1.0, 1.0))
-    fighter.take_damage(10.0, Vector2(240.0, -120.0))
-    assert(fighter.damage == 10.0)
+func update_state_from_keyboard() -> void:
+    state["P1"] = {
+        "left": Input.is_key_pressed(KEY_A),
+        "right": Input.is_key_pressed(KEY_D),
+        "jump": Input.is_key_pressed(KEY_W),
+        "light": Input.is_key_pressed(KEY_J),
+        "heavy": Input.is_key_pressed(KEY_K),
+        "special": Input.is_key_pressed(KEY_L),
+        "shield": Input.is_key_pressed(KEY_S),
+    }
+    state["P2"] = {
+        "left": Input.is_key_pressed(KEY_LEFT),
+        "right": Input.is_key_pressed(KEY_RIGHT),
+        "jump": Input.is_key_pressed(KEY_UP),
+        "light": Input.is_key_pressed(KEY_COMMA),
+        "heavy": Input.is_key_pressed(KEY_PERIOD),
+        "special": Input.is_key_pressed(KEY_SLASH),
+        "shield": Input.is_key_pressed(KEY_DOWN),
+    }
 
-    print("Project Aurora smoke test passed.")
-    quit()
+func read_actions(player_id: String) -> Dictionary:
+    return state.get(player_id, {"left": false, "right": false, "jump": false, "light": false, "heavy": false, "special": false, "shield": false})
+
+func _apply_key(player_id: String, key: Key, pressed: bool) -> void:
+    if player_id == "P1":
+        match key:
+            KEY_A:
+                state[player_id]["left"] = pressed
+            KEY_D:
+                state[player_id]["right"] = pressed
+            KEY_W:
+                state[player_id]["jump"] = pressed
+            KEY_J:
+                state[player_id]["light"] = pressed
+            KEY_K:
+                state[player_id]["heavy"] = pressed
+            KEY_L:
+                state[player_id]["special"] = pressed
+            KEY_S:
+                state[player_id]["shield"] = pressed
+    elif player_id == "P2":
+        match key:
+            KEY_LEFT:
+                state[player_id]["left"] = pressed
+            KEY_RIGHT:
+                state[player_id]["right"] = pressed
+            KEY_UP:
+                state[player_id]["jump"] = pressed
+            KEY_COMMA:
+                state[player_id]["light"] = pressed
+            KEY_PERIOD:
+                state[player_id]["heavy"] = pressed
+            KEY_SLASH:
+                state[player_id]["special"] = pressed
+            KEY_DOWN:
+                state[player_id]["shield"] = pressed

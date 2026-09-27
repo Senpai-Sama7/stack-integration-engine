@@ -1,27 +1,12 @@
-extends RefCounted
-class_name AttackData
+[gd_scene load_steps=4 format=3]
 
-var id: String = ""
-var damage: float = 5.0
-var knockback: float = 240.0
-var startup_ticks: int = 4
-var active_ticks: int = 3
-var recovery_ticks: int = 8
-var hitbox_size: Vector2 = Vector2(40.0, 25.0)
-var usable_by: Array[String] = []
+[ext_resource type="Script" path="res://scripts/core/Game.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/Stage.tscn" id="2"]
 
-func _init(name: String, attack_damage: float, attack_knockback: float) -> void:
-    id = name
-    damage = attack_damage
-    knockback = attack_knockback
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_1"]
+size = Vector2(1200, 48)
 
-func as_dictionary() -> Dictionary:
-    return {
-        "id": id,
-        "damage": damage,
-        "knockback": knockback,
-        "startup_ticks": startup_ticks,
-        "active_ticks": active_ticks,
-        "recovery_ticks": recovery_ticks,
-        "hitbox_size": hitbox_size,
-    }
+[node name="Main" type="Node2D"]
+script = ExtResource("1")
+
+[node name="Stage" parent="." instance=ExtResource("2")]
