@@ -187,3 +187,109 @@ def test_task_claim_requires_builder_provider_and_scope(tmp_path):
             )
     finally:
         controller.close()
+
+
+def _bridge_fixture(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "README.md").write_text("fixture\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qm", "base"],
+        cwd=repo,
+        check=True,
+    )
+    controller = CollaborationController(Settings.load(tmp_path / "state"))
+    run = controller.create_run(repo, "review", ["REQ"], scope_paths=["src"])
+    grant = Grant(
+        "codex-lead",
+        run.project_id,
+        ActorRole.LEAD,
+        frozenset({SideEffect.READ_ONLY}),
+        (".",),
+        provider=Provider.CODEX,
+    )
+    return controller, run, CoordinationBridge(controller, grant)
+
+
+def _rpc(bridge, method, params=None, request_id=1):
+    import json
+
+    return bridge.handle_line(
+        json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}})
+    )
+
+
+def test_bridge_negotiates_protocol_version(tmp_path):
+    controller, _, bridge = _bridge_fixture(tmp_path)
+    try:
+        known = _rpc(bridge, "initialize", {"protocolVersion": "2025-03-26"})
+        assert known["result"]["protocolVersion"] == "2025-03-26"
+        unknown = _rpc(bridge, "initialize", {"protocolVersion": "1999-01-01"})
+        assert unknown["result"]["protocolVersion"] == "2025-06-18"
+    finally:
+        controller.close()
+
+
+def test_bridge_reports_tool_failures_as_tool_results(tmp_path):
+    controller, run, bridge = _bridge_fixture(tmp_path)
+    try:
+        response = _rpc(bridge, "tools/call", {"name": "task_get", "arguments": {"task_id": "x"}})
+        assert response["result"]["isError"] is True
+        assert "task/x" in response["result"]["content"][0]["text"]
+        unknown = _rpc(bridge, "tools/call", {"name": "rm_rf", "arguments": {}})
+        assert unknown["error"]["code"] == -32602
+        assert bridge.handle_line(b"{not json")["error"]["code"] == -32700
+        assert bridge.handle_line(b"[1, 2]")["error"]["code"] == -32600
+        notification = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+        import json
+
+        assert bridge.handle_line(json.dumps(notification)) is None
+    finally:
+        controller.close()
+
+
+def test_bridge_task_proposals_get_plan_validation(tmp_path):
+    controller, run, bridge = _bridge_fixture(tmp_path)
+    try:
+        base = {
+            "run_id": run.id,
+            "task_id": "proposed",
+            "description": "inspect",
+            "provider": "claude",
+            "side_effect": "read_only",
+        }
+        outside = _rpc(
+            bridge,
+            "tools/call",
+            {"name": "task_propose", "arguments": {**base, "allowed_paths": ["docs"]}},
+        )
+        assert outside["result"]["isError"] is True
+        assert "outside the run scope" in outside["result"]["content"][0]["text"]
+        pushed = _rpc(
+            bridge,
+            "tools/call",
+            {"name": "task_propose", "arguments": {**base, "side_effect": "push"}},
+        )
+        assert pushed["result"]["isError"] is True
+        accepted = _rpc(
+            bridge,
+            "tools/call",
+            {"name": "task_propose", "arguments": {**base, "allowed_paths": ["src/app"]}},
+        )
+        assert accepted["result"]["isError"] is False
+    finally:
+        controller.close()
+
+
+def test_artifact_get_is_binary_safe(tmp_path):
+    controller, run, bridge = _bridge_fixture(tmp_path)
+    try:
+        artifact = controller.artifacts.register_bytes(
+            b"\xff\xfe binary", project_id=run.project_id, run_id=run.id, producer_id="x"
+        )
+        value = bridge.call("artifact_get", {"artifact_id": artifact.id})
+        assert value["text"].endswith(" binary")
+    finally:
+        controller.close()

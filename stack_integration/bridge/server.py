@@ -11,10 +11,11 @@ import os
 import secrets
 import sys
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from stack_integration import __version__
 from stack_integration.config import Settings
 from stack_integration.contracts.models import (
     ActorRole,
@@ -96,7 +97,7 @@ class BridgeTokenManager:
             if not hmac.compare_digest(signature, expected):
                 raise BridgeAuthenticationError("invalid bridge token signature")
             payload = json.loads(body)
-            expires = __import__("datetime").datetime.fromisoformat(payload["expires_at"])
+            expires = datetime.fromisoformat(payload["expires_at"])
             if expires <= utc_now():
                 raise BridgeAuthenticationError("bridge token expired")
             return Grant(
@@ -332,8 +333,11 @@ TOOLS.append(
     }
 )
 
+TOOL_NAMES = frozenset(tool["name"] for tool in TOOLS)
 
 BRIDGE_TEXT_FIELD_LIMIT = 65536
+BRIDGE_REFERENCE_LIMIT = 50
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 
 class CoordinationBridge:
@@ -344,9 +348,19 @@ class CoordinationBridge:
 
     @staticmethod
     def _bounded(value: str, *, field: str, limit: int = BRIDGE_TEXT_FIELD_LIMIT) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be a string")
         if len(value.encode()) > limit:
             raise ValueError(f"{field} exceeds {limit}-byte bridge limit")
         return value
+
+    @classmethod
+    def _references(cls, values: Any, *, limit: int = BRIDGE_REFERENCE_LIMIT) -> list[str]:
+        if not isinstance(values, list):
+            raise ValueError("reference lists must be arrays of strings")
+        if len(values) > limit:
+            raise ValueError(f"at most {limit} references are accepted")
+        return [cls._bounded(item, field="reference", limit=512) for item in values]
 
     def call(self, name: str, arguments: dict[str, Any]) -> Any:
         if name == "task_list":
@@ -419,18 +433,24 @@ class CoordinationBridge:
                         action=SideEffect.WORKTREE_WRITE,
                         relative_path=path,
                     )
-            task = Task(
-                id=arguments["task_id"],
-                project_id=run.project_id,
-                run_id=run.id,
-                description=arguments["description"],
-                owner_provider=Provider(arguments["provider"]),
-                dependencies=list(arguments.get("dependencies", [])),
-                allowed_paths=allowed_paths,
-                acceptance_ids=list(arguments.get("acceptance_ids", [])),
-                side_effect=side_effect,
+            # The same validation as an operator plan: run scope, acceptance IDs,
+            # admitted side effects, task ID shape, dependencies, and cycles.
+            (task,) = self.controller.add_tasks(
+                run.id,
+                [
+                    {
+                        "id": arguments["task_id"],
+                        "description": self._bounded(
+                            arguments["description"], field="task description"
+                        ),
+                        "provider": Provider(arguments["provider"]).value,
+                        "dependencies": list(arguments.get("dependencies", [])),
+                        "allowed_paths": allowed_paths,
+                        "acceptance_ids": list(arguments.get("acceptance_ids", [])),
+                        "side_effect": side_effect.value,
+                    }
+                ],
             )
-            self.controller.scheduler.admit_tasks([task])
             return task.model_dump(mode="json")
         if name == "message_send":
             message = Message(
@@ -442,7 +462,7 @@ class CoordinationBridge:
                 recipient_id=arguments["recipient_id"],
                 purpose=self._bounded(arguments["purpose"], field="message purpose"),
                 body=self._bounded(arguments["body"], field="message body"),
-                references=arguments.get("references", []),
+                references=self._references(arguments.get("references", [])),
             )
             self.controller.coordination.send_message(message)
             return message.model_dump(mode="json")
@@ -463,7 +483,7 @@ class CoordinationBridge:
                 kind=arguments["kind"],
                 statement=self._bounded(arguments["statement"], field="finding statement"),
                 severity=arguments["severity"],
-                evidence_artifact_ids=arguments.get("evidence_artifact_ids", []),
+                evidence_artifact_ids=self._references(arguments.get("evidence_artifact_ids", [])),
             )
             self.controller.coordination.publish_finding(finding)
             return finding.model_dump(mode="json")
@@ -514,7 +534,10 @@ class CoordinationBridge:
             )
             if len(content) > 1_048_576:
                 raise ValueError("artifact exceeds one MiB bridge read limit")
-            return {"artifact_id": arguments["artifact_id"], "text": content.decode()}
+            return {
+                "artifact_id": arguments["artifact_id"],
+                "text": content.decode(errors="replace"),
+            }
         if name == "review_submit":
             if self.grant.role != ActorRole.REVIEWER:
                 raise PermissionError("only a reviewer grant may submit reviews")
@@ -549,9 +572,12 @@ class CoordinationBridge:
                 project_id=self.grant.project_id,
                 run_id=arguments.get("run_id"),
                 question=self._bounded(arguments["question"], field="decision question"),
-                alternatives=list(arguments["alternatives"]),
+                alternatives=[
+                    self._bounded(str(item), field="decision alternative")
+                    for item in self._references(arguments["alternatives"], limit=20)
+                ],
                 rationale=self._bounded(arguments["rationale"], field="decision rationale"),
-                evidence_artifact_ids=list(arguments.get("evidence_artifact_ids", [])),
+                evidence_artifact_ids=self._references(arguments.get("evidence_artifact_ids", [])),
                 decider_id=self.grant.actor_id,
             )
             self.controller.database.put(
@@ -571,7 +597,7 @@ class CoordinationBridge:
                 action=SideEffect.READ_ONLY,
             )
             artifact = self.controller.artifacts.register_text(
-                str(arguments["summary"]),
+                self._bounded(str(arguments["summary"]), field="checkpoint", limit=200_000),
                 project_id=run.project_id,
                 run_id=run.id,
                 task_id=arguments.get("task_id"),
@@ -608,7 +634,9 @@ class CoordinationBridge:
                     run_id=run.id,
                     task_id=task.id,
                     candidate_hash=task.candidate_hash,
-                    cwd=task.workspace or project.root,
+                    cwd=self.controller.workspaces.project_directory(
+                        project, task.workspace or project.root
+                    ),
                 )
             )
             return check.model_dump(mode="json")
@@ -616,27 +644,30 @@ class CoordinationBridge:
 
     def serve_stdio(self) -> None:
         for raw in sys.stdin.buffer:
-            request: dict[str, Any] | None = None
-            try:
-                request = json.loads(raw)
-                response = self._handle(request)
-                if response is not None:
-                    sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
-                    sys.stdout.flush()
-            except Exception as error:
-                request_id = request.get("id") if request else None
-                sys.stdout.write(
-                    json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "id": request_id,
-                            "error": {"code": -32000, "message": str(error)},
-                        },
-                        separators=(",", ":"),
-                    )
-                    + "\n"
-                )
+            if not raw.strip():
+                continue
+            response = self.handle_line(raw)
+            if response is not None:
+                sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
                 sys.stdout.flush()
+
+    def handle_line(self, raw: bytes | str) -> dict[str, Any] | None:
+        """Handle one JSON-RPC message; return the response, or None for notifications."""
+        try:
+            request = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            return self._error(None, -32700, f"parse error: {error}")
+        if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
+            request_id = request.get("id") if isinstance(request, dict) else None
+            return self._error(request_id, -32600, "invalid JSON-RPC 2.0 request")
+        try:
+            return self._handle(request)
+        except Exception as error:
+            return self._error(request.get("id"), -32603, f"internal error: {error}")
+
+    @staticmethod
+    def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
+        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
     def _handle(self, request: dict[str, Any]) -> dict[str, Any] | None:
         method = request.get("method")
@@ -644,29 +675,47 @@ class CoordinationBridge:
         result: dict[str, Any]
         if request_id is None:
             return None
+        params = request.get("params") or {}
+        if not isinstance(params, dict):
+            return self._error(request_id, -32602, "params must be an object")
         if method == "initialize":
+            requested = params.get("protocolVersion")
             result = {
-                "protocolVersion": "2025-06-18",
+                # Echo a version the client asked for when we speak it; otherwise offer
+                # our newest and let the client decide (MCP version negotiation).
+                "protocolVersion": requested
+                if requested in SUPPORTED_PROTOCOL_VERSIONS
+                else SUPPORTED_PROTOCOL_VERSIONS[0],
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "stack-agent-bridge", "version": "0.2.0"},
+                "serverInfo": {"name": "stack-agent-bridge", "version": __version__},
             }
         elif method == "tools/list":
             result = {"tools": TOOLS}
         elif method == "tools/call":
-            params = request.get("params", {})
-            value = self.call(params.get("name", ""), params.get("arguments", {}))
-            result = {
-                "content": [{"type": "text", "text": json.dumps(value, sort_keys=True)}],
-                "isError": False,
-            }
+            name = params.get("name", "")
+            arguments = params.get("arguments") or {}
+            if not isinstance(arguments, dict):
+                return self._error(request_id, -32602, "tool arguments must be an object")
+            if name not in TOOL_NAMES:
+                return self._error(request_id, -32602, f"unknown tool: {name}")
+            try:
+                value = self.call(name, arguments)
+            except Exception as error:
+                # Tool failures are results the model can read and react to, not
+                # protocol failures (MCP: report tool errors inside the result).
+                detail = f"{type(error).__name__}: {error}"
+                if isinstance(error, KeyError):
+                    detail = f"missing or unknown value: {error}"
+                result = {"content": [{"type": "text", "text": detail}], "isError": True}
+            else:
+                result = {
+                    "content": [{"type": "text", "text": json.dumps(value, sort_keys=True)}],
+                    "isError": False,
+                }
         elif method == "ping":
             result = {}
         else:
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32601, "message": f"method not found: {method}"},
-            }
+            return self._error(request_id, -32601, f"method not found: {method}")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
