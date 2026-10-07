@@ -14,6 +14,11 @@ class Settings:
     artifacts_path: Path
     nexus_server_script: Path
 
+    @property
+    def policy_path(self) -> Path:
+        """Optional operator policy file; built-in defaults apply when it is absent."""
+        return self.state_root / "policy.json"
+
     @classmethod
     def load(cls, state_root: str | Path | None = None) -> Settings:
         root = (

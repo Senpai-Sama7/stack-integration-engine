@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
 import time
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
+
+TRUNCATION_MARKER = b"\n[output truncated by controller]\n"
+LINGERING_MARKER = (
+    b"\n[controller: output pipes were still held open by a descendant after the command "
+    b"exited; the process group was killed]\n"
+)
 
 
 @dataclass(frozen=True)
@@ -21,14 +29,41 @@ class ProcessResult:
     cancelled: bool = False
     truncated: bool = False
     launch_error: bool = False
+    lingering_descendants: bool = False
+
+
+@dataclass
+class _Capture:
+    limit: int
+    data: bytearray = field(default_factory=bytearray)
+    truncated: bool = False
+
+    def extend(self, chunk: bytes) -> None:
+        remaining = self.limit - len(self.data)
+        if remaining > 0:
+            self.data.extend(chunk[:remaining])
+        if len(chunk) > remaining:
+            self.truncated = True
+
+    def finish(self, suffix: bytes = b"") -> bytes:
+        if self.truncated and len(self.data) + len(TRUNCATION_MARKER) <= self.limit:
+            self.data.extend(TRUNCATION_MARKER)
+        return bytes(self.data) + suffix
 
 
 class ProcessSupervisor:
-    def __init__(self, *, output_limit_bytes: int = 10 * 1024 * 1024, kill_grace: float = 3.0):
+    def __init__(
+        self,
+        *,
+        output_limit_bytes: int = 10 * 1024 * 1024,
+        kill_grace: float = 3.0,
+        drain_timeout: float = 5.0,
+    ):
         if output_limit_bytes < 1024:
             raise ValueError("output limit must be at least 1024 bytes")
         self.output_limit_bytes = output_limit_bytes
         self.kill_grace = kill_grace
+        self.drain_timeout = drain_timeout
 
     async def run(
         self,
@@ -38,15 +73,19 @@ class ProcessSupervisor:
         timeout: float,
         env: dict[str, str] | None = None,
         stdin: bytes | None = None,
+        remove_env: Iterable[str] = (),
     ) -> ProcessResult:
         if not args:
             raise ValueError("process command cannot be empty")
         started = time.monotonic()
+        environment = {**os.environ, **(env or {})}
+        for name in remove_env:
+            environment.pop(name, None)
         try:
             process = await asyncio.create_subprocess_exec(
                 *args,
                 cwd=str(cwd),
-                env={**os.environ, **(env or {})},
+                env=environment,
                 stdin=(
                     asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL
                 ),
@@ -64,13 +103,19 @@ class ProcessSupervisor:
                 launch_error=True,
             )
         assert process.stdout and process.stderr
-        stdout_task = asyncio.create_task(self._read_bounded(process.stdout))
-        stderr_task = asyncio.create_task(self._read_bounded(process.stderr))
-        if stdin is not None:
-            assert process.stdin
-            process.stdin.write(stdin)
-            await process.stdin.drain()
-            process.stdin.close()
+        stdout = _Capture(self.output_limit_bytes)
+        stderr = _Capture(self.output_limit_bytes)
+        readers = {
+            asyncio.create_task(self._read_bounded(process.stdout, stdout)),
+            asyncio.create_task(self._read_bounded(process.stderr, stderr)),
+        }
+        # Feed stdin concurrently so a child that never reads it cannot block the
+        # controller outside the wall-time limit once the pipe buffer fills.
+        feeder = (
+            asyncio.create_task(self._feed(process.stdin, stdin))
+            if stdin is not None and process.stdin is not None
+            else None
+        )
         timed_out = False
         cancelled = False
         try:
@@ -81,45 +126,69 @@ class ProcessSupervisor:
         except asyncio.CancelledError:
             cancelled = True
             await asyncio.shield(self._terminate(process))
-        stdout, stdout_cut = await stdout_task
-        stderr, stderr_cut = await stderr_task
+        if feeder is not None:
+            feeder.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await feeder
+        lingering = await self._drain(process, readers)
         return ProcessResult(
             args=tuple(args),
             exit_code=process.returncode,
-            stdout=stdout,
-            stderr=stderr,
+            stdout=stdout.finish(),
+            stderr=stderr.finish(LINGERING_MARKER if lingering else b""),
             duration_ms=(time.monotonic() - started) * 1000,
             timed_out=timed_out,
             cancelled=cancelled,
-            truncated=stdout_cut or stderr_cut,
+            truncated=stdout.truncated or stderr.truncated,
+            lingering_descendants=lingering,
         )
 
-    async def _read_bounded(self, stream: asyncio.StreamReader) -> tuple[bytes, bool]:
-        retained = bytearray()
-        truncated = False
+    async def _drain(
+        self, process: asyncio.subprocess.Process, readers: set[asyncio.Task[None]]
+    ) -> bool:
+        """Finish reading output without letting an escaped descendant hang the caller.
+
+        A background child that inherited stdout/stderr keeps the pipes open after the
+        command itself exits, so end-of-file may never arrive. Readers get a bounded
+        grace period; after that the remaining process group is killed and reading stops.
+        """
+        _, pending = await asyncio.wait(readers, timeout=self.drain_timeout)
+        if not pending:
+            return False
+        self._signal_group(process.pid, signal.SIGKILL)
+        _, pending = await asyncio.wait(pending, timeout=1.0)
+        for reader in pending:
+            reader.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        return True
+
+    @staticmethod
+    async def _feed(writer: asyncio.StreamWriter, data: bytes) -> None:
+        try:
+            writer.write(data)
+            await writer.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            with contextlib.suppress(Exception):
+                writer.close()
+
+    @staticmethod
+    async def _read_bounded(stream: asyncio.StreamReader, capture: _Capture) -> None:
+        # Keep reading past the limit so the child never blocks on a full pipe.
         while chunk := await stream.read(64 * 1024):
-            remaining = self.output_limit_bytes - len(retained)
-            if remaining > 0:
-                retained.extend(chunk[:remaining])
-            if len(chunk) > remaining:
-                truncated = True
-        if truncated:
-            marker = b"\n[output truncated by controller]\n"
-            if len(retained) + len(marker) <= self.output_limit_bytes:
-                retained.extend(marker)
-        return bytes(retained), truncated
+            capture.extend(chunk)
+
+    @staticmethod
+    def _signal_group(pid: int, signum: signal.Signals) -> None:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pid, signum)
 
     async def _terminate(self, process: asyncio.subprocess.Process) -> None:
         if process.returncode is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            self._signal_group(process.pid, signal.SIGTERM)
         try:
             await asyncio.wait_for(process.wait(), self.kill_grace)
         except TimeoutError:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            self._signal_group(process.pid, signal.SIGKILL)
             await process.wait()

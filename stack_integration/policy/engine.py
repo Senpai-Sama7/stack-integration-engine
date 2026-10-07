@@ -13,6 +13,27 @@ class AuthorizationError(PermissionError):
     pass
 
 
+def normalize_scope_path(path: str) -> str:
+    """Normalize a project-relative scope path, rejecting escapes and absolutes."""
+    if not path.strip():
+        raise AuthorizationError("scope path entries must be non-empty")
+    if "\0" in path or "\\" in path:
+        raise AuthorizationError("scope paths must not contain NUL or backslash characters")
+    candidate = Path(path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise AuthorizationError("scope paths must be normalized project-relative paths")
+    normalized = candidate.as_posix().strip("/")
+    return normalized or "."
+
+
+def path_within_scope(path: str, scope: list[str] | tuple[str, ...]) -> bool:
+    target = normalize_scope_path(path)
+    return any(
+        root == "." or target == root or target.startswith(root + "/")
+        for root in (normalize_scope_path(item) for item in scope)
+    )
+
+
 @dataclass(frozen=True)
 class Grant:
     actor_id: str
@@ -32,6 +53,8 @@ class Policy:
     lease_seconds: int = 90
     heartbeat_seconds: int = 15
     task_wall_time_seconds: int = 1200
+    review_wall_time_seconds: int = 900
+    max_task_attempts: int = 2
     opposite_provider_review: bool = True
     require_nonzero_test_collection: bool = True
     cross_project_reads: bool = False
@@ -43,9 +66,36 @@ class Policy:
         )
     )
 
+    def __post_init__(self) -> None:
+        positive = {
+            "max_sessions": self.max_sessions,
+            "max_modifying_tasks": self.max_modifying_tasks,
+            "max_verification_jobs": self.max_verification_jobs,
+            "lease_seconds": self.lease_seconds,
+            "heartbeat_seconds": self.heartbeat_seconds,
+            "task_wall_time_seconds": self.task_wall_time_seconds,
+            "review_wall_time_seconds": self.review_wall_time_seconds,
+            "max_task_attempts": self.max_task_attempts,
+        }
+        invalid = sorted(
+            name
+            for name, value in positive.items()
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1
+        )
+        if invalid:
+            raise ValueError(f"policy values must be positive integers: {invalid}")
+        if self.heartbeat_seconds >= self.lease_seconds:
+            raise ValueError("heartbeat_seconds must be shorter than lease_seconds")
+
     @classmethod
     def from_file(cls, path: str | Path) -> Policy:
         raw = json.loads(Path(path).read_text())
+        if not isinstance(raw, dict):
+            raise ValueError("policy file must contain a JSON object")
+        known_sections = {"teams", "scheduling", "review", "storage", "scope"}
+        unknown = sorted(set(raw) - known_sections - {"schema_version", "description"})
+        if unknown:
+            raise ValueError(f"unknown policy sections: {unknown}")
         return cls(
             max_sessions=raw.get("teams", {}).get("max_concurrent_model_sessions", 6),
             max_modifying_tasks=raw.get("teams", {}).get("max_active_modifying_tasks", 2),
@@ -53,6 +103,8 @@ class Policy:
             lease_seconds=raw.get("scheduling", {}).get("lease_seconds", 90),
             heartbeat_seconds=raw.get("scheduling", {}).get("heartbeat_seconds", 15),
             task_wall_time_seconds=raw.get("scheduling", {}).get("task_wall_time_seconds", 1200),
+            review_wall_time_seconds=raw.get("scheduling", {}).get("review_wall_time_seconds", 900),
+            max_task_attempts=raw.get("scheduling", {}).get("max_task_attempts", 2),
             opposite_provider_review=raw.get("review", {}).get("opposite_provider_required", True),
             require_nonzero_test_collection=raw.get("review", {}).get(
                 "required_test_collection_must_be_nonzero", True
@@ -159,10 +211,4 @@ class PolicyEngine:
 
     @staticmethod
     def _normalize_relative(path: str) -> str:
-        if not path.strip():
-            raise AuthorizationError("scope path entries must be non-empty")
-        candidate = Path(path)
-        if candidate.is_absolute() or ".." in candidate.parts:
-            raise AuthorizationError("scope paths must be normalized project-relative paths")
-        normalized = candidate.as_posix().strip("/")
-        return normalized or "."
+        return normalize_scope_path(path)

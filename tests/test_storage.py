@@ -47,3 +47,49 @@ def test_backup_is_readable(tmp_path: Path, database: ControllerDatabase):
     target = database.backup(tmp_path / "backup.db")
     with ControllerDatabase(target) as restored:
         assert restored.get("project", "p1", Project).id == "p1"
+
+
+def test_update_advances_updated_at_but_keeps_created_at(database: ControllerDatabase):
+    project = Project(id="p1", root="/tmp/p1", git_common_dir="/tmp/p1/.git")
+    database.save_project(project)
+    first = database._fetchone("SELECT created_at,updated_at FROM records WHERE id='p1'")
+    database.save_project(project)
+    second = database._fetchone("SELECT created_at,updated_at FROM records WHERE id='p1'")
+    assert second["created_at"] == first["created_at"]
+    assert second["updated_at"] > first["updated_at"]
+    assert second["updated_at"] != second["created_at"]
+
+
+def test_restore_replaces_live_state_through_backup_api(
+    tmp_path: Path, database: ControllerDatabase
+):
+    database.save_project(Project(id="p1", root="/tmp/p1", git_common_dir="/tmp/p1/.git"))
+    snapshot = database.backup(tmp_path / "snapshot.db")
+    database.save_project(Project(id="p2", root="/tmp/p2", git_common_dir="/tmp/p2/.git"))
+    database.restore_from(snapshot)
+    assert database.exists("project", "p1")
+    assert not database.exists("project", "p2")
+    # The live connection keeps working after the restore.
+    database.save_project(Project(id="p3", root="/tmp/p3", git_common_dir="/tmp/p3/.git"))
+    with ControllerDatabase(database.path) as reopened:
+        assert reopened.exists("project", "p3")
+        assert not reopened.exists("project", "p2")
+
+
+def test_backup_refuses_to_overwrite_live_database(database: ControllerDatabase):
+    with pytest.raises(ValueError, match="differ"):
+        database.backup(database.path)
+
+
+def test_concurrent_identical_artifacts_do_not_collide(artifacts: ArtifactStore):
+    from concurrent.futures import ThreadPoolExecutor
+
+    def write(_: int):
+        return artifacts.register_bytes(b"same", project_id="p1", run_id="r1", producer_id="x")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(write, range(32)))
+    assert {item.content_hash for item in results} == {results[0].content_hash}
+    directory = (artifacts.root / results[0].relative_path).parent
+    assert [path.name for path in directory.iterdir()] == [results[0].content_hash[2:]]
+    assert artifacts.read(results[0].id, project_id="p1") == b"same"

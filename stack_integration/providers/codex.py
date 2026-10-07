@@ -15,16 +15,17 @@ from stack_integration.contracts.models import (
     ProviderRequest,
     ProviderResult,
 )
-from stack_integration.providers.base import ProviderAdapter
+from stack_integration.providers.base import ProviderAdapter, prompt_transport
+from stack_integration.providers.process import ProcessResult, ProcessSupervisor
 
 
 class CodexAdapter(ProviderAdapter):
     provider = Provider.CODEX
 
-    def __init__(self, executable: str = "codex", supervisor=None):
+    def __init__(self, executable: str = "codex", supervisor: ProcessSupervisor | None = None):
         super().__init__(executable, supervisor)
 
-    async def probe(self):
+    async def probe(self) -> Capability:
         resolved = shutil.which(self.executable)
         if resolved is None:
             return Capability(
@@ -109,12 +110,15 @@ class CodexAdapter(ProviderAdapter):
                     json.dump(request.output_schema, schema_file)
                     schema_path = schema_file.name
                 args.extend(["--output-schema", schema_path])
-            args.append(request.prompt)
+            argv_prompt, stdin_prompt = prompt_transport(request.prompt)
+            # `codex exec -` reads the instructions from stdin.
+            args.append(argv_prompt if argv_prompt is not None else "-")
             process = await self.supervisor.run(
                 args,
                 cwd=request.project_root,
                 timeout=request.timeout_seconds,
                 env=request.environment,
+                stdin=stdin_prompt,
             )
         finally:
             if schema_path:
@@ -122,7 +126,7 @@ class CodexAdapter(ProviderAdapter):
         return self.parse_result(process)
 
     @classmethod
-    def parse_result(cls, process) -> ProviderResult:
+    def parse_result(cls, process: ProcessResult) -> ProviderResult:
         if process.cancelled:
             return ProviderResult(
                 provider=Provider.CODEX,

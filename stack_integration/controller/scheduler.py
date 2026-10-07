@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import timedelta
 
@@ -10,13 +11,22 @@ from stack_integration.contracts.models import (
     CapabilityStatus,
     Event,
     Lease,
+    SideEffect,
     Task,
     TaskStatus,
     assert_task_transition,
     new_id,
     utc_now,
 )
+from stack_integration.policy import AuthorizationError, normalize_scope_path
 from stack_integration.storage.database import ConflictError, ControllerDatabase, NotFoundError
+
+# Task IDs become worktree directory names and appear in actor IDs and commit messages.
+TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+RESERVED_TASK_IDS = {"integration"}
+# Workers may only read or write their own worktree. Push, deploy, delete, privilege,
+# network, and repository writes stay with the operator and integrator.
+ADMITTED_TASK_SIDE_EFFECTS = {SideEffect.READ_ONLY, SideEffect.WORKTREE_WRITE}
 
 
 class AdmissionError(ValueError):
@@ -58,10 +68,27 @@ class Scheduler:
         }
         all_tasks = existing | by_id
         for task in tasks:
-            if task.side_effect.value != "read_only" and not task.allowed_paths:
+            if not TASK_ID_PATTERN.match(task.id) or task.id in RESERVED_TASK_IDS:
+                raise AdmissionError(
+                    f"invalid task ID {task.id!r}: use 1-128 letters, digits, '.', '_' or '-'"
+                    " (not starting with punctuation; 'integration' is reserved)"
+                )
+            if task.side_effect not in ADMITTED_TASK_SIDE_EFFECTS:
+                raise AdmissionError(
+                    f"task {task.id} side effect {task.side_effect.value!r} is not admitted; "
+                    "tasks may only be read_only or worktree_write"
+                )
+            if task.side_effect != SideEffect.READ_ONLY and not task.allowed_paths:
                 raise AdmissionError(
                     f"modifying task {task.id} requires an explicit allowed path scope"
                 )
+            for path in task.allowed_paths:
+                try:
+                    normalize_scope_path(path)
+                except AuthorizationError as error:
+                    raise AdmissionError(
+                        f"task {task.id} allowed path {path!r}: {error}"
+                    ) from error
             missing = [
                 dependency for dependency in task.dependencies if dependency not in all_tasks
             ]
@@ -242,11 +269,11 @@ class Scheduler:
 
     def reconcile_expired(self) -> list[str]:
         now = utc_now()
-        rows = self.database._connection.execute(  # controller-internal query
+        rows = self.database._fetchall(  # controller-internal query
             "SELECT task_id,lease_id,fencing_token,expires_at FROM leases "
             "WHERE revoked_at IS NULL AND expires_at < ?",
             (now.isoformat(),),
-        ).fetchall()
+        )
         reconciled: list[str] = []
         for row in rows:
             task_id = row["task_id"]

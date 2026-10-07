@@ -15,6 +15,8 @@ from stack_integration.providers.process import ProcessSupervisor
 from stack_integration.security import redact_text
 from stack_integration.storage import ArtifactStore, ControllerDatabase
 
+VERIFICATION_ENV_DENYLIST = ("STACK_AGENT_GRANT",)
+
 
 class VerificationRunner:
     def __init__(
@@ -41,7 +43,11 @@ class VerificationRunner:
             definition.command,
             cwd=cwd,
             timeout=definition.timeout_seconds,
-            env=definition.environment,
+            # Bytecode caches would otherwise appear as untracked files and register as
+            # candidate drift. A definition may still override this explicitly.
+            env={"PYTHONDONTWRITEBYTECODE": "1", **definition.environment},
+            # Checks execute candidate code: never hand them a bridge credential.
+            remove_env=VERIFICATION_ENV_DENYLIST,
         )
         combined = b"$ " + " ".join(definition.command).encode() + b"\n" + result.stdout
         if result.stderr:

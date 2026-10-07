@@ -7,21 +7,23 @@ import shutil
 from pathlib import Path
 
 from stack_integration.contracts.models import (
+    Capability,
     CapabilityStatus,
     Provider,
     ProviderRequest,
     ProviderResult,
 )
-from stack_integration.providers.base import ProviderAdapter, basic_probe
+from stack_integration.providers.base import ProviderAdapter, basic_probe, prompt_transport
+from stack_integration.providers.process import ProcessResult, ProcessSupervisor
 
 
 class ClaudeAdapter(ProviderAdapter):
     provider = Provider.CLAUDE
 
-    def __init__(self, executable: str = "claude", supervisor=None):
+    def __init__(self, executable: str = "claude", supervisor: ProcessSupervisor | None = None):
         super().__init__(executable, supervisor)
 
-    async def probe(self):
+    async def probe(self) -> Capability:
         capability = await basic_probe(
             self.provider,
             self.executable,
@@ -54,19 +56,10 @@ class ClaudeAdapter(ProviderAdapter):
         return capability
 
     async def execute(self, request: ProviderRequest) -> ProviderResult:
-        args = [
-            self.executable,
-            "--print",
-            "--output-format",
-            "json",
-            "--permission-mode",
-            "plan" if request.read_only else "acceptEdits",
-            "--permission-prompts",
-            "none",
-        ]
-        if request.session_id:
-            args.extend(["--resume", request.session_id])
+        args = [self.executable, "--print"]
         if request.mcp_server_command:
+            # `--mcp-config <configs...>` is variadic: it must be followed by another
+            # option, never by the positional prompt, or the prompt is parsed as a config.
             args.extend(
                 [
                     "--strict-mcp-config",
@@ -84,19 +77,35 @@ class ClaudeAdapter(ProviderAdapter):
                     ),
                 ]
             )
+        args.extend(
+            [
+                "--output-format",
+                "json",
+                "--permission-mode",
+                "plan" if request.read_only else "acceptEdits",
+                "--permission-prompts",
+                "none",
+            ]
+        )
+        if request.session_id:
+            args.extend(["--resume", request.session_id])
         if request.output_schema is not None:
             args.extend(["--json-schema", json.dumps(request.output_schema, separators=(",", ":"))])
-        args.append(request.prompt)
+        argv_prompt, stdin_prompt = prompt_transport(request.prompt)
+        if argv_prompt is not None:
+            args.append(argv_prompt)
+        # Without a positional prompt, `claude --print` reads the prompt from stdin.
         process = await self.supervisor.run(
             args,
             cwd=request.project_root,
             timeout=request.timeout_seconds,
             env=request.environment,
+            stdin=stdin_prompt,
         )
         return self.parse_result(process)
 
     @classmethod
-    def parse_result(cls, process) -> ProviderResult:
+    def parse_result(cls, process: ProcessResult) -> ProviderResult:
         if process.cancelled:
             return ProviderResult(
                 provider=Provider.CLAUDE,

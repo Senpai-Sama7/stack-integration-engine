@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 from pathlib import Path
 
 from stack_integration.contracts.models import Artifact, new_id
@@ -44,10 +45,18 @@ class ArtifactStore:
             if target.read_bytes() != content:
                 raise ArtifactCorruptionError(f"hash collision or corruption: {digest}")
         else:
-            temporary = target.with_suffix(f".tmp-{os.getpid()}")
-            temporary.write_bytes(content)
-            temporary.chmod(0o600)
-            os.replace(temporary, target)
+            # Unique per writer: threads in one process share a PID, so a PID-only
+            # suffix lets two concurrent writers of the same digest clobber each other.
+            temporary = target.with_name(f".{target.name}.tmp-{secrets.token_hex(8)}")
+            try:
+                descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(content)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
         artifact = Artifact(
             id=new_id("art"),
             project_id=project_id,
