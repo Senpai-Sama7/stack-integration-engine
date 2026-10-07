@@ -1,0 +1,4 @@
+# Godot import cache and editor state (regenerated on first open)
+.godot/
+*.import
+export_presets.cfg

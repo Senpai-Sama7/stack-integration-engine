@@ -15,11 +15,11 @@ Aegis Rooftop is an original training stage: a broad central rooftop with two el
 - left platform: 300 px wide, raised 150 px;
 - right platform: 300 px wide, raised 150 px;
 - lower center platform: 260 px wide, below the main floor;
-- left/right side blast zones: 420 px from stage center;
+- left/right side blast zones: outside all platform geometry (the earlier 420 px draft value fell inside the floor; superseded by DEC-007, currently 640 px in stage data);
 - upper blast zone: 900 px above stage origin;
 - lower blast zone: 500 px below stage origin.
 
-Values are starting targets and must be stored in stage data.
+Values are starting targets and must be stored in stage data. `data/stages/aegis_rooftop.json` is authoritative (DEC-007); stage validation rejects geometry that touches a blast zone.
 
 ## Stage data
 

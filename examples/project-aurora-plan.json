@@ -24,102 +24,213 @@
   "tasks": [
     {
       "id": "design-baseline",
-      "description": "Read docs/design and confirm the design baseline. Identify contradictions or missing implementation decisions. Do not modify source code; record blocking issues in docs/design/DESIGN_REVIEW.md.",
+      "description": "Read docs/design and the existing scripts, and confirm the design baseline. Identify contradictions or missing implementation decisions and report them in your structured result (this task is read-only; it must not create or modify files).",
       "provider": "codex",
       "side_effect": "read_only",
-      "acceptance_ids": ["REQ-DESIGN-BASELINE"]
+      "acceptance_ids": [
+        "REQ-DESIGN-BASELINE"
+      ]
     },
     {
       "id": "foundation",
-      "description": "Implement the Godot project foundation, main scene, match lifecycle, input abstraction, pause, restart, and debug state display. Follow docs/design/TECHNICAL_ARCHITECTURE.md and docs/design/TESTING_STRATEGY.md.",
+      "description": "Review and complete the existing foundation (scripts/core/Game.gd, MatchSimulation.gd, scripts/input/InputRouter.gd, scenes/Main.tscn): match lifecycle, input abstraction, pause, restart, and debug state display. Follow docs/design/TECHNICAL_ARCHITECTURE.md and docs/design/TESTING_STRATEGY.md, keep the simulation independent of the scene tree (DEC-009), and add tests to tests/run_tests.gd.",
       "provider": "codex",
-      "dependencies": ["design-baseline"],
+      "dependencies": [
+        "design-baseline"
+      ],
       "side_effect": "worktree_write",
-      "allowed_paths": ["project.godot", "README.md", "scenes", "scripts/core", "scripts/input", "scripts/ui", "tests"],
-      "acceptance_ids": ["REQ-FOUNDATION", "REQ-TEST-COVERAGE", "REQ-CLEAN-CHECKOUT"]
+      "allowed_paths": [
+        "project.godot",
+        "README.md",
+        "scenes",
+        "scripts/core",
+        "scripts/input",
+        "scripts/ui",
+        "tests",
+        "tools"
+      ],
+      "acceptance_ids": [
+        "REQ-FOUNDATION",
+        "REQ-TEST-COVERAGE",
+        "REQ-CLEAN-CHECKOUT"
+      ]
     },
     {
       "id": "foundation-review",
       "description": "Review the foundation implementation against the architecture and testing specifications. Identify lifecycle, input, pause, restart, resource-loading, and test gaps.",
       "provider": "claude",
-      "dependencies": ["foundation"],
+      "dependencies": [
+        "foundation"
+      ],
       "side_effect": "read_only",
-      "acceptance_ids": ["REQ-FOUNDATION", "REQ-TEST-COVERAGE"]
+      "acceptance_ids": [
+        "REQ-FOUNDATION",
+        "REQ-TEST-COVERAGE"
+      ]
     },
     {
       "id": "movement",
-      "description": "Implement fixed-step movement, jumping, gravity, air control, fast fall, landing, coyote time, input buffering, facing, and movement locks according to docs/design/MOVEMENT_SPEC.md.",
+      "description": "Extend the deterministic movement in scripts/core/FighterState.gd (or extract it into scripts/movement) to cover the rest of docs/design/MOVEMENT_SPEC.md: fast fall, down-through platforms, solid platform sides, and movement locks for shield and grab states. Record any new rule in docs/design/DECISIONS.md and add boundary tests.",
       "provider": "claude",
-      "dependencies": ["foundation-review"],
+      "dependencies": [
+        "foundation-review"
+      ],
       "side_effect": "worktree_write",
-      "allowed_paths": ["scripts/movement", "scripts/input", "scripts/core", "scenes/characters", "data/characters", "tests"],
-      "acceptance_ids": ["REQ-MOVEMENT", "REQ-TEST-COVERAGE"]
+      "allowed_paths": [
+        "scripts/movement",
+        "scripts/input",
+        "scripts/core",
+        "scenes/characters",
+        "data/characters",
+        "docs/design/DECISIONS.md",
+        "tests"
+      ],
+      "acceptance_ids": [
+        "REQ-MOVEMENT",
+        "REQ-TEST-COVERAGE"
+      ]
     },
     {
       "id": "movement-review",
       "description": "Independently review movement timing, state transitions, collision edge cases, frame-rate dependence, and deterministic tests against docs/design/MOVEMENT_SPEC.md.",
       "provider": "codex",
-      "dependencies": ["movement"],
+      "dependencies": [
+        "movement"
+      ],
       "side_effect": "read_only",
-      "acceptance_ids": ["REQ-MOVEMENT", "REQ-TEST-COVERAGE"]
+      "acceptance_ids": [
+        "REQ-MOVEMENT",
+        "REQ-TEST-COVERAGE"
+      ]
     },
     {
       "id": "combat",
-      "description": "Implement data-driven attacks, hitboxes, hurtboxes, damage, knockback, hitstun, shielding, grabs, invulnerability, blast-zone handling, stocks, and respawn according to docs/design/COMBAT_SPEC.md.",
+      "description": "Extend the data-driven combat (scripts/combat, scripts/core/MatchSimulation.gd) with shielding, shield break, grabs and throws, specials, and directional influence according to docs/design/COMBAT_SPEC.md. Keep all knockback math in KnockbackModel and contact ordering stable; add tests for each rule.",
       "provider": "codex",
-      "dependencies": ["movement-review"],
+      "dependencies": [
+        "movement-review"
+      ],
       "side_effect": "worktree_write",
-      "allowed_paths": ["scripts/combat", "scripts/movement", "scripts/core", "scenes/characters", "data/characters", "data/attacks", "tests"],
-      "acceptance_ids": ["REQ-COMBAT", "REQ-TEST-COVERAGE"]
+      "allowed_paths": [
+        "scripts/combat",
+        "scripts/movement",
+        "scripts/core",
+        "scenes/characters",
+        "data/characters",
+        "data/attacks",
+        "docs/design/DECISIONS.md",
+        "tests"
+      ],
+      "acceptance_ids": [
+        "REQ-COMBAT",
+        "REQ-TEST-COVERAGE"
+      ]
     },
     {
       "id": "combat-review",
       "description": "Review combat resolution, simultaneous hits, repeated-hit prevention, shield and grab rules, knockback, hitstun, stocks, respawn, and match completion.",
       "provider": "claude",
-      "dependencies": ["combat"],
+      "dependencies": [
+        "combat"
+      ],
       "side_effect": "read_only",
-      "acceptance_ids": ["REQ-COMBAT", "REQ-TEST-COVERAGE"]
+      "acceptance_ids": [
+        "REQ-COMBAT",
+        "REQ-TEST-COVERAGE"
+      ]
     },
     {
       "id": "characters-and-stage",
       "description": "Implement Captain America and Batman prototype data/resources and the original Aegis Rooftop stage. Keep global simulation rules generic and put character-specific behavior behind validated data or isolated scripts.",
       "provider": "claude",
-      "dependencies": ["combat-review"],
+      "dependencies": [
+        "combat-review"
+      ],
       "side_effect": "worktree_write",
-      "allowed_paths": ["data", "scenes/characters", "scenes/stages", "scripts/stages", "scripts/combat", "scripts/movement", "tests"],
-      "acceptance_ids": ["REQ-CHARACTERS", "REQ-STAGE", "REQ-TEST-COVERAGE"]
+      "allowed_paths": [
+        "data",
+        "scenes/characters",
+        "scenes/stages",
+        "scripts/stages",
+        "scripts/combat",
+        "scripts/movement",
+        "docs/design/DECISIONS.md",
+        "tests"
+      ],
+      "acceptance_ids": [
+        "REQ-CHARACTERS",
+        "REQ-STAGE",
+        "REQ-TEST-COVERAGE"
+      ]
     },
     {
       "id": "vertical-slice",
       "description": "Integrate two local players, character selection or configured fighter loading, Aegis Rooftop, camera, HUD, stocks, respawn, pause, restart, debug hitboxes, and a launchable main scene.",
       "provider": "codex",
-      "dependencies": ["characters-and-stage"],
+      "dependencies": [
+        "characters-and-stage"
+      ],
       "side_effect": "worktree_write",
-      "allowed_paths": ["scenes", "scripts", "data", "tests", "README.md", "docs/evidence"],
-      "acceptance_ids": ["REQ-VERTICAL-SLICE", "REQ-CLEAN-CHECKOUT"]
+      "allowed_paths": [
+        "scenes",
+        "scripts",
+        "data",
+        "tests",
+        "README.md",
+        "docs/evidence"
+      ],
+      "acceptance_ids": [
+        "REQ-VERTICAL-SLICE",
+        "REQ-CLEAN-CHECKOUT"
+      ]
     },
     {
       "id": "final-verification",
       "description": "Run the complete test suite and headless validation. Verify the clean-checkout path, missing-resource behavior, deterministic simulation, match lifecycle, and documented limitations. Do not modify gameplay code.",
       "provider": "claude",
-      "dependencies": ["vertical-slice"],
+      "dependencies": [
+        "vertical-slice"
+      ],
       "side_effect": "read_only",
-      "acceptance_ids": ["REQ-FOUNDATION", "REQ-MOVEMENT", "REQ-COMBAT", "REQ-CHARACTERS", "REQ-STAGE", "REQ-VERTICAL-SLICE", "REQ-TEST-COVERAGE", "REQ-CLEAN-CHECKOUT"]
+      "acceptance_ids": [
+        "REQ-FOUNDATION",
+        "REQ-MOVEMENT",
+        "REQ-COMBAT",
+        "REQ-CHARACTERS",
+        "REQ-STAGE",
+        "REQ-VERTICAL-SLICE",
+        "REQ-TEST-COVERAGE",
+        "REQ-CLEAN-CHECKOUT"
+      ]
     }
   ],
   "checks": [
     {
       "id": "project-tests",
       "name": "Project automated tests",
-      "command": ["godot", "--headless", "--path", ".", "-s", "res://tests/run_tests.gd"],
+      "command": [
+        "godot",
+        "--headless",
+        "--path",
+        ".",
+        "-s",
+        "res://tests/run_tests.gd"
+      ],
       "timeout_seconds": 900,
       "required": true,
       "expects_tests": true
     },
     {
       "id": "godot-project-load",
-      "name": "Godot headless project load",
-      "command": ["godot", "--headless", "--path", ".", "--editor", "--quit"],
+      "name": "Godot headless load, compile, and boot validation",
+      "command": [
+        "godot",
+        "--headless",
+        "--path",
+        ".",
+        "-s",
+        "res://tools/validate_project.gd"
+      ],
       "timeout_seconds": 300,
       "required": true,
       "expects_tests": false
