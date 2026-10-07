@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from pathlib import Path
 from typing import Any
 
 from stack_integration import __version__
+
+# asyncio's default stream limit is 64 KiB per line, which a NEXUS context pack or search
+# result easily exceeds. Responses are one JSON line each, so cap them well above any
+# legitimate payload but below anything that could exhaust memory.
+MCP_LINE_LIMIT_BYTES = 16 * 1024 * 1024
+STDERR_LINE_CHARS = 2000
+STDERR_LINES_KEPT = 200
 
 
 class McpProtocolError(RuntimeError):
@@ -23,7 +31,9 @@ class McpStdioClient:
         cwd: str | Path,
         env: dict[str, str] | None = None,
         timeout: float = 30,
+        line_limit: int = MCP_LINE_LIMIT_BYTES,
     ):
+        self.line_limit = line_limit
         self.command = command
         self.cwd = Path(cwd)
         self.env = env or {}
@@ -43,6 +53,7 @@ class McpStdioClient:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=self.line_limit,
             )
             self._stderr_task = asyncio.create_task(self._drain_stderr())
             await self.request(
@@ -60,11 +71,28 @@ class McpStdioClient:
             raise
 
     async def _drain_stderr(self) -> None:
+        """Keep a bounded tail of the server's stderr for error messages.
+
+        Reads chunks rather than lines: a server that logs one huge unterminated line
+        must neither raise inside this task nor fill the pipe and block the server.
+        """
         assert self.process and self.process.stderr
-        while line := await self.process.stderr.readline():
-            self.stderr.append(line.decode(errors="replace").rstrip())
-            if len(self.stderr) > 200:
-                self.stderr.pop(0)
+        pending = b""
+        try:
+            while chunk := await self.process.stderr.read(64 * 1024):
+                *lines, pending = (pending + chunk).split(b"\n")
+                for line in lines:
+                    self._record_stderr(line)
+                pending = pending[-STDERR_LINE_CHARS * 4 :]
+            if pending:
+                self._record_stderr(pending)
+        except Exception:
+            # Diagnostics only: never let them take the client down.
+            return
+
+    def _record_stderr(self, line: bytes) -> None:
+        self.stderr.append(line.decode(errors="replace")[:STDERR_LINE_CHARS].rstrip())
+        del self.stderr[:-STDERR_LINES_KEPT]
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         await self._write({"jsonrpc": "2.0", "method": method, "params": params})
@@ -82,6 +110,12 @@ class McpStdioClient:
                     line = await asyncio.wait_for(self.process.stdout.readline(), self.timeout)
                 except TimeoutError as error:
                     raise McpProtocolError(f"timeout waiting for {method}") from error
+                except (ValueError, asyncio.LimitOverrunError) as error:
+                    # StreamReader.readline raises ValueError past the limit; the stream
+                    # position is then unreliable, so the exchange cannot continue.
+                    raise McpProtocolError(
+                        f"MCP response to {method} exceeded the {self.line_limit}-byte line limit"
+                    ) from error
                 if not line:
                     detail = "\n".join(self.stderr[-10:])
                     raise McpProtocolError(f"MCP server exited while handling {method}: {detail}")
@@ -123,7 +157,8 @@ class McpStdioClient:
                 self.process.kill()
                 await self.process.wait()
         if self._stderr_task:
-            await self._stderr_task
+            with contextlib.suppress(Exception):
+                await self._stderr_task
 
     async def __aenter__(self) -> McpStdioClient:
         return await self.start()

@@ -28,6 +28,10 @@ results. Worktrees isolate collaboration but share the host account and are not 
   under test cannot reuse the bridge credential.
 - Candidate commits skip repository hooks (`--no-verify`) and signing prompts, so the committed
   tree is byte-for-byte the reviewed candidate; a formatting hook cannot change it after review.
+- Parsing of untrusted output (provider results, check output, MCP responses) is linear-time and
+  size-bounded: redaction and test-count patterns have no unbounded repetition that can be
+  restarted from many positions, MCP lines are capped at 16 MiB, and stderr is kept as a bounded
+  tail. Hostile-input regression tests fail if a pattern becomes quadratic.
 - Task side effects are limited to `read_only` and `worktree_write` at admission, and task IDs and
   paths are validated before they reach the filesystem.
 - Push, deployment, delete, privilege, policy mutation, and scope expansion excluded from worker

@@ -6,6 +6,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 
@@ -18,6 +19,7 @@ class GitError(RuntimeError):
 
 RESERVED_WORKSPACE_NAMES = {"integration"}
 INTEGRATION_REF_PREFIX = "refs/heads/stack-agent/"
+HASH_CHUNK_BYTES = 1024 * 1024
 
 
 def _safe_segment(name: str, *, label: str) -> str:
@@ -44,6 +46,12 @@ class GitWorkspaceManager:
         self.worktree_root = self.state_root / "worktrees"
         self.worktree_root.mkdir(parents=True, exist_ok=True)
         self._integration_lock = threading.Lock()
+        # Operations that edit the shared repository's administrative state (worktree
+        # records, refs) are serialized: `git worktree prune` racing a concurrent
+        # `git worktree add` can delete the half-created record. Work inside one task's
+        # own worktree (diff, hash, commit, cherry-pick) takes no lock and may run in
+        # parallel threads.
+        self._admin_lock = threading.RLock()
 
     @staticmethod
     def _git(root: Path, *args: str, check: bool = True) -> str:
@@ -146,14 +154,15 @@ class GitWorkspaceManager:
         if destination.exists():
             raise GitError(f"workspace already exists: {destination}")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        self._git(
-            Path(project.root),
-            "worktree",
-            "add",
-            "--detach",
-            str(destination),
-            base_revision,
-        )
+        with self._admin_lock:
+            self._git(
+                Path(project.root),
+                "worktree",
+                "add",
+                "--detach",
+                str(destination),
+                base_revision,
+            )
         return destination
 
     def changed_paths(self, workspace: str | Path, base_revision: str) -> list[str]:
@@ -197,32 +206,68 @@ class GitWorkspaceManager:
         """A reviewable diff of every candidate change, including new untracked files.
 
         ``git diff BASE`` alone omits untracked files, so a task that only creates files
-        would otherwise present an empty diff to its reviewer. Untracked files are
-        rendered with ``--no-index`` against /dev/null without touching the index.
+        would otherwise present an empty diff to its reviewer. A scratch copy of the
+        worktree's index marks every untracked file intent-to-add, so a single
+        ``git diff`` covers tracked and new files together: a constant handful of Git
+        processes however many files were added (one process per new file previously),
+        and neither the worktree's index nor the repository's object store is modified.
         """
         root = Path(workspace)
-        parts = [self._git_bytes(root, "diff", "--no-ext-diff", "--no-color", base_revision, "--")]
+        index_source, objects = (
+            Path(line)
+            for line in self._git(
+                root,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                "index",
+                "--git-path",
+                "objects",
+            ).splitlines()
+        )
+        notes = []
+        with tempfile.TemporaryDirectory(prefix="stack-agent-index-") as scratch:
+            index = Path(scratch) / "index"
+            if index_source.is_file():
+                shutil.copyfile(index_source, index)
+            # Intent-to-add entries need the empty blob in the object store. Point writes
+            # at the scratch directory and read the real store as an alternate, so the
+            # repository is never modified, not even by that one 15-byte object.
+            (Path(scratch) / "objects").mkdir()
+            environment = {
+                **os.environ,
+                "GIT_INDEX_FILE": str(index),
+                "GIT_OBJECT_DIRECTORY": str(Path(scratch) / "objects"),
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(objects),
+            }
+            added = subprocess.run(
+                ["git", "add", "--intent-to-add", "--ignore-errors", "--all"],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                check=False,
+            )
+            if added.returncode != 0:
+                # --ignore-errors still adds every other path; say so rather than let the
+                # reviewer assume the diff is complete.
+                detail = added.stderr.decode(errors="replace").strip().splitlines()[:3]
+                notes.append(f"[controller: some paths could not be added to this diff: {detail}]")
+            diff = subprocess.run(
+                ["git", "diff", "--no-ext-diff", "--no-color", base_revision, "--"],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                check=False,
+            )
+            if diff.returncode != 0:
+                raise GitError(diff.stderr.decode(errors="replace").strip() or "git diff failed")
         for relative in sorted(self._untracked(root)):
             target = root / relative
             if target.is_dir() and not target.is_symlink():
-                # Untracked nested repositories are listed as directories; Git cannot
-                # diff a directory against /dev/null.
-                parts.append(f"new untracked directory (not diffed): {relative}\n".encode())
-                continue
-            parts.append(
-                self._git_bytes(
-                    root,
-                    "diff",
-                    "--no-ext-diff",
-                    "--no-color",
-                    "--no-index",
-                    "--",
-                    os.devnull,
-                    relative,
-                    ok_codes=(0, 1),
-                )
-            )
-        return b"".join(parts).decode(errors="replace")
+                # An untracked nested repository cannot be diffed; name it instead.
+                notes.append(f"new untracked directory (not diffed): {relative}")
+        suffix = "".join(f"{note}\n" for note in notes)
+        return diff.stdout.decode(errors="replace") + suffix
 
     def candidate_hash(self, workspace: str | Path) -> str:
         root = Path(workspace)
@@ -242,7 +287,10 @@ class GitWorkspaceManager:
                 digest.update(b"\0directory\0")
             elif target.is_file():
                 digest.update(b"\0file\0")
-                digest.update(target.read_bytes())
+                # Stream: an untracked multi-gigabyte file must not be read into memory.
+                with target.open("rb") as handle:
+                    while chunk := handle.read(HASH_CHUNK_BYTES):
+                        digest.update(chunk)
         return digest.hexdigest()
 
     _COMMIT_IDENTITY = (
@@ -298,15 +346,16 @@ class GitWorkspaceManager:
         detached) without touching the operator's checked-out branch or working tree.
         """
         reference = INTEGRATION_REF_PREFIX + _safe_segment(run_id, label="run id")
-        self._git(Path(project.root), "check-ref-format", reference)
-        self._git(
-            Path(project.root),
-            "update-ref",
-            "-m",
-            f"stack-agent: integrate {run_id}",
-            reference,
-            commit,
-        )
+        with self._admin_lock:
+            self._git(Path(project.root), "check-ref-format", reference)
+            self._git(
+                Path(project.root),
+                "update-ref",
+                "-m",
+                f"stack-agent: integrate {run_id}",
+                reference,
+                commit,
+            )
         return reference
 
     def remove_task_workspace(
@@ -320,7 +369,8 @@ class GitWorkspaceManager:
         if force:
             args.append("--force")
         args.append(str(path))
-        self._git(Path(project.root), *args)
+        with self._admin_lock:
+            self._git(Path(project.root), *args)
 
     def remove_run_workspaces(self, project: Project, run_id: str) -> list[str]:
         """Remove every managed worktree of one run and prune Git's worktree records."""
@@ -339,5 +389,6 @@ class GitWorkspaceManager:
                 removed.append(workspace.name)
             if not any(run_root.iterdir()):
                 run_root.rmdir()
-        self._git(Path(project.root), "worktree", "prune")
+        with self._admin_lock:
+            self._git(Path(project.root), "worktree", "prune")
         return removed

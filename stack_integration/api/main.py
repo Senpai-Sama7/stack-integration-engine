@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse
 
 from stack_integration import __version__
 from stack_integration.config import Settings
-from stack_integration.contracts.models import Run, Task
+from stack_integration.contracts.models import Run
 from stack_integration.controller import CollaborationController
 from stack_integration.storage.database import NotFoundError
 
@@ -245,24 +245,18 @@ def create_app(settings: Settings | None = None, token: str | None = None) -> Fa
     @app.get("/api/runs", dependencies=[Depends(authenticate)])
     def list_runs() -> list[dict[str, object]]:
         active = controller()
-        response: list[dict[str, object]] = []
-        for run in active.database.list("run", Run):
-            summary: dict[str, int] = {}
-            for task in active.database.list(
-                "task", Task, project_id=run.project_id, run_id=run.id
-            ):
-                summary[task.status.value] = summary.get(task.status.value, 0) + 1
-            response.append(
-                {
-                    "id": run.id,
-                    "status": run.status.value,
-                    "objective": run.objective,
-                    "created_at": run.created_at.isoformat(),
-                    "integration_ref": run.integration_ref,
-                    "task_summary": summary,
-                }
-            )
-        return response
+        task_counts = active.database.status_counts("task")
+        return [
+            {
+                "id": run.id,
+                "status": run.status.value,
+                "objective": run.objective,
+                "created_at": run.created_at.isoformat(),
+                "integration_ref": run.integration_ref,
+                "task_summary": dict(sorted(task_counts.get(run.id, {}).items())),
+            }
+            for run in active.database.list("run", Run)
+        ]
 
     @app.get("/api/runs/{run_id}", dependencies=[Depends(authenticate)])
     def get_run(run_id: str) -> dict[str, Any]:

@@ -231,6 +231,7 @@ class Scheduler:
         actor_id: str,
         fencing_token: int | None = None,
         candidate_hash: str | None = None,
+        candidate_commit: str | None = None,
     ) -> Task:
         now = utc_now()
         with self.database.transaction() as connection:
@@ -253,6 +254,12 @@ class Scheduler:
                 if not candidate_hash:
                     raise ValueError("candidate hash is required for submission")
                 task.candidate_hash = candidate_hash
+            if candidate_commit is not None:
+                if target != TaskStatus.VERIFIED:
+                    raise ValueError("a candidate commit can only be recorded when verifying")
+                # Recorded with the status in one transaction: a dependent that sees
+                # VERIFIED must also see the commit it has to build on.
+                task.candidate_commit = candidate_commit
             task.status = target
             task.revision = int(row["revision"]) + 1
             connection.execute(

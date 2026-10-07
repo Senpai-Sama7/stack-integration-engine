@@ -93,3 +93,53 @@ def test_concurrent_identical_artifacts_do_not_collide(artifacts: ArtifactStore)
     directory = (artifacts.root / results[0].relative_path).parent
     assert [path.name for path in directory.iterdir()] == [results[0].content_hash[2:]]
     assert artifacts.read(results[0].id, project_id="p1") == b"same"
+
+
+def _task(task_id: str, run_id: str, status):
+    from stack_integration.contracts.models import Provider, Task
+
+    return Task(
+        id=task_id,
+        project_id="p1",
+        run_id=run_id,
+        description=task_id,
+        owner_provider=Provider.CODEX,
+        status=status,
+    )
+
+
+def test_status_counts_aggregate_per_run_without_loading_records(database: ControllerDatabase):
+    from stack_integration.contracts.models import TaskStatus
+
+    for index, status in enumerate(
+        [TaskStatus.READY, TaskStatus.READY, TaskStatus.FAILED, TaskStatus.VERIFIED]
+    ):
+        database.save_task(_task(f"a{index}", "run-a", status))
+    database.save_task(_task("b0", "run-b", TaskStatus.RUNNING))
+    database.save_project(Project(id="p1", root="/tmp/p1", git_common_dir="/tmp/p1/.git"))
+    assert database.status_counts("task") == {
+        "run-a": {"ready": 2, "failed": 1, "verified": 1},
+        "run-b": {"running": 1},
+    }
+    assert database.status_counts("review") == {}
+
+
+def test_status_counts_fall_back_when_sqlite_lacks_json_functions(
+    database: ControllerDatabase, monkeypatch
+):
+    import sqlite3
+
+    from stack_integration.contracts.models import TaskStatus
+
+    database.save_task(_task("a0", "run-a", TaskStatus.READY))
+    database.save_task(_task("a1", "run-a", TaskStatus.FAILED))
+    expected = database.status_counts("task")
+    real = database._fetchall
+
+    def without_json(sql, parameters=()):
+        if "json_extract" in sql:
+            raise sqlite3.OperationalError("no such function: json_extract")
+        return real(sql, parameters)
+
+    monkeypatch.setattr(database, "_fetchall", without_json)
+    assert database.status_counts("task") == expected == {"run-a": {"ready": 1, "failed": 1}}

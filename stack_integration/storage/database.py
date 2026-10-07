@@ -243,6 +243,37 @@ class ControllerDatabase:
         )
         return [model_type.model_validate_json(row["body"]) for row in rows]
 
+    def status_counts(self, kind: str) -> dict[str, dict[str, int]]:
+        """Per-run tallies of each record's ``status``, as ``{run_id: {status: count}}``.
+
+        One aggregate query instead of loading and validating every record: a dashboard
+        poll over 12,000 tasks parsed 12,000 models and ran one query per run.
+        """
+        try:
+            rows = self._fetchall(
+                "SELECT run_id, json_extract(body, '$.status') AS status, COUNT(*) AS total "
+                "FROM records WHERE kind=? AND run_id IS NOT NULL GROUP BY run_id, status",
+                (kind,),
+            )
+            counts: dict[str, dict[str, int]] = {}
+            for row in rows:
+                if row["status"] is not None:
+                    counts.setdefault(str(row["run_id"]), {})[str(row["status"])] = int(
+                        row["total"]
+                    )
+            return counts
+        except sqlite3.OperationalError:
+            # A SQLite build without the JSON functions: count in Python instead.
+            fallback: dict[str, dict[str, int]] = {}
+            for row in self._fetchall(
+                "SELECT run_id, body FROM records WHERE kind=? AND run_id IS NOT NULL", (kind,)
+            ):
+                status = json.loads(row["body"]).get("status")
+                if status is not None:
+                    bucket = fallback.setdefault(str(row["run_id"]), {})
+                    bucket[str(status)] = bucket.get(str(status), 0) + 1
+            return fallback
+
     def save_project(self, project: Project) -> int:
         return self.put("project", project)
 

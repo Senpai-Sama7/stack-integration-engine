@@ -34,8 +34,40 @@
   and several common token prefixes.
 - Dashboard rendered task counts as `[object Object]`; each API request rebuilt a full controller.
 - Event bus crashed on synchronous handlers and grew without bound.
+- **Untrusted output could stall the controller.** The PEM private-key redaction pattern rescanned
+  to the end of the text from every unterminated `-----BEGIN` marker, and the test-count parser
+  retried an unanchored `(\d+)` from every digit of a long digit run. Both were quadratic
+  (doubling the input quadrupled the time: 13 s for 40 000 digits). Provider output and
+  candidate test output are untrusted and are processed on the event loop, so a hostile or merely
+  unlucky output could hang the controller. Both are linear now, and a truncated PEM key (cut off
+  by the output limit) is redacted instead of passed through.
+- The MCP client failed on any tool response over asyncio's 64 KiB line limit (a NEXUS context
+  pack or search result easily exceeds it), and one long stderr line crashed `close()` and masked
+  the real error. The limit is 16 MiB and configurable; oversized responses are a clean
+  `McpProtocolError`; stderr is read in bounded chunks.
+- The lease heartbeat covered only the provider call. Workspace setup and the scope and hash work
+  before submission could outlast a lease on a large repository and fail the submission.
 - Project Aurora did not load in Godot (scripts at the wrong paths, a missing main script, invalid
   scene files, colliding class names), and its load check could not fail.
+
+### Performance
+
+Measured on a 10 000-file repository with three parallel modifying tasks:
+
+- Event-loop stall during a run: 4.5 s to 0.04 to 0.09 s. Worktree creation, candidate hashing,
+  diffing, and committing now run in worker threads instead of on the loop that renews leases and
+  enforces provider timeouts. Operations that edit the shared repository's worktree records and
+  refs are serialized so concurrent tasks cannot race `git worktree prune`.
+- Review diff for 1 000 new files: 1 003 Git processes and 4.0 s to 4 processes and 0.7 s (a
+  scratch copy of the index marks new files intent-to-add; the repository's index and object store
+  are untouched).
+- Candidate hashing streams files: peak Python memory for a 150 MB untracked file 157 MB to 2 MB.
+- Redacting 10 MB of clean output: 1.8 s to 0.13 s (a cheap substring check skips patterns whose
+  literals cannot occur; an equivalence test proves it never skips a match).
+- `GET /api/runs` with 300 runs and 12 000 tasks: 150 ms to 60 ms (one SQL aggregate instead of a
+  query and a model parse per task).
+- Controller overhead per task, profiled with instant fake providers, is about 36 ms (mostly
+  worktree creation and SQLite commits), so nothing further was changed there.
 
 ### Added
 

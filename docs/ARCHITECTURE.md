@@ -31,7 +31,10 @@ role, project root, timeout, output contract, and session identity.
    scope).
 4. Dispatch is event-driven: a task starts as soon as its dependencies verify, bounded by the
    session and modifying-task limits. Each start atomically leases the task; a monotonically
-   increasing fencing token rejects late writers, and heartbeats keep the lease alive.
+   increasing fencing token rejects late writers, and one heartbeat keeps the lease alive from
+   the claim until the task leaves `running`. Blocking Git work (worktree creation, hashing,
+   diffing, committing) runs in worker threads so the event loop keeps renewing leases and
+   enforcing timeouts.
 5. Give every task its own detached Git worktree at the run's base revision, with the verified
    commits of all transitive dependencies cherry-picked in dependency order (read-only reviews of
    upstream work therefore see that work).
@@ -47,8 +50,9 @@ role, project root, timeout, output contract, and session identity.
 10. Run project checks in an independent subprocess (without the bridge credential and without
     bytecode writes) and store complete bounded logs.
 11. Mark the task verified only when review, requirement coverage, and checks all pass and the
-    checks did not alter the reviewed candidate. Otherwise request changes, up to the policy's
-    attempt limit.
+    checks did not alter the reviewed candidate. The candidate commit is recorded in the same
+    transaction as `verified`, so a dependent can never start without the commit it builds on.
+    Otherwise request changes, up to the policy's attempt limit.
 12. Commit accepted worktree changes, cherry-pick them in dependency order in an integration
     worktree, rerun combined checks, and publish the result as `refs/heads/stack-agent/<run-id>`
     without touching the operator's checked-out branch or working tree.

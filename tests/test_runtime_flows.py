@@ -30,6 +30,7 @@ from stack_integration.contracts.models import (
 from stack_integration.controller import CollaborationController
 from stack_integration.controller.runtime import topological_order
 from stack_integration.controller.scheduler import AdmissionError
+from stack_integration.policy import Policy
 from stack_integration.providers.base import ProviderAdapter
 from stack_integration.workspaces import GitWorkspaceManager
 
@@ -130,12 +131,15 @@ def controller_for(
     *,
     builder: Behavior | None = None,
     reviewer: Behavior | None = None,
+    policy: Policy | None = None,
 ) -> CollaborationController:
     providers = {
         provider: ScriptedAdapter(provider, log, builder=builder, reviewer=reviewer)
         for provider in Provider
     }
-    controller = CollaborationController(Settings.load(tmp_path / "state"), providers=providers)
+    controller = CollaborationController(
+        Settings.load(tmp_path / "state"), providers=providers, policy=policy
+    )
     controller.dispatch_poll_seconds = 0.05
     return controller
 
@@ -705,3 +709,153 @@ def test_cleanup_removes_stray_non_worktree_directories(tmp_path: Path):
     (stray / "leftover.txt").write_text("x")
     assert manager.remove_run_workspaces(project, "run") == ["half-created", "real"]
     assert not (manager.worktree_root / project.id / "run").exists()
+
+
+@pytest.mark.asyncio
+async def test_blocking_workspace_work_does_not_stall_the_event_loop(tmp_path: Path, monkeypatch):
+    """Git work runs in worker threads. Creating worktrees and hashing candidates can take
+    seconds on a large repository, and the loop also renews leases and enforces provider
+    timeouts. Here every blocking workspace call sleeps; the loop must keep ticking."""
+    import time
+
+    for name in ("create_task_workspace", "candidate_hash", "candidate_diff", "commit_candidate"):
+        original = getattr(GitWorkspaceManager, name)
+
+        def slow(self, *args, _original=original, **kwargs):
+            time.sleep(0.6)
+            return _original(self, *args, **kwargs)
+
+        monkeypatch.setattr(GitWorkspaceManager, name, slow)
+
+    repo = make_repo(tmp_path / "repo")
+    controller = controller_for(tmp_path, [])
+    gaps: list[float] = []
+    stop = False
+
+    async def ticker():
+        last = time.perf_counter()
+        while not stop:
+            await asyncio.sleep(0.01)
+            now = time.perf_counter()
+            gaps.append(now - last)
+            last = now
+
+    try:
+        run = controller.create_run(repo, "stall", ["REQ-1"], checks=NOOP_CHECK)
+        controller.add_tasks(
+            run.id,
+            [
+                {
+                    "id": "write",
+                    "description": "write",
+                    "provider": "codex",
+                    "side_effect": "worktree_write",
+                    "allowed_paths": ["write.txt"],
+                }
+            ],
+        )
+        watcher = asyncio.create_task(ticker())
+        completed = await controller.execute_run(run.id)
+        stop = True
+        await watcher
+        assert completed.status == RunStatus.COMPLETED, diagnostics(controller, run)
+        # At least 2.4 s of blocking calls ran; no single stall may approach 0.6 s.
+        assert max(gaps) < 0.4, f"event loop stalled for {max(gaps):.2f}s"
+    finally:
+        controller.close()
+
+
+@pytest.mark.asyncio
+async def test_dependent_never_starts_between_verified_and_its_candidate_commit(
+    tmp_path: Path, monkeypatch
+):
+    """A task is marked VERIFIED and its candidate commit recorded together. Committing
+    in a worker thread made that a window in which the dispatcher could start a dependent
+    that read candidate_commit=None and so built on the bare base revision."""
+    import time
+
+    original = GitWorkspaceManager.commit_candidate
+
+    def slow_commit(self, *args, **kwargs):
+        time.sleep(0.4)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(GitWorkspaceManager, "commit_candidate", slow_commit)
+    seen: dict[str, bool] = {}
+
+    def builder(request: ProviderRequest) -> dict[str, Any]:
+        root = Path(request.project_root)
+        seen[request.task_id] = (root / "build.txt").exists()
+        if request.read_only:
+            return work()
+        (root / f"{request.task_id}.txt").write_text(request.task_id)
+        return work([f"{request.task_id}.txt"])
+
+    repo = make_repo(tmp_path / "repo")
+    controller = controller_for(tmp_path, [], builder=builder)
+    controller.dispatch_poll_seconds = 0.01
+    try:
+        run = controller.create_run(repo, "race", ["REQ-1"], checks=NOOP_CHECK)
+        controller.add_tasks(
+            run.id,
+            [
+                {
+                    "id": "build",
+                    "description": "write build",
+                    "provider": "codex",
+                    "side_effect": "worktree_write",
+                    "allowed_paths": ["build.txt"],
+                },
+                {
+                    "id": "review",
+                    "description": "review build",
+                    "provider": "claude",
+                    "dependencies": ["build"],
+                },
+            ],
+        )
+        completed = await controller.execute_run(run.id)
+        assert completed.status == RunStatus.COMPLETED, diagnostics(controller, run)
+        assert seen["review"] is True, "dependent started before the upstream commit existed"
+    finally:
+        controller.close()
+
+
+@pytest.mark.asyncio
+async def test_lease_is_renewed_through_slow_workspace_setup_and_hashing(
+    tmp_path: Path, monkeypatch
+):
+    """The heartbeat used to cover only the provider call. Workspace creation and the
+    post-provider scope and hash work can outlast a lease on a large repository, which
+    failed the submission with an expired lease."""
+    import time
+
+    for name in ("create_task_workspace", "candidate_hash"):
+        original = getattr(GitWorkspaceManager, name)
+
+        def slow(self, *args, _original=original, **kwargs):
+            time.sleep(2.6)
+            return _original(self, *args, **kwargs)
+
+        monkeypatch.setattr(GitWorkspaceManager, name, slow)
+
+    repo = make_repo(tmp_path / "repo")
+    controller = controller_for(tmp_path, [], policy=Policy(lease_seconds=2, heartbeat_seconds=1))
+    try:
+        run = controller.create_run(repo, "lease", ["REQ-1"], checks=NOOP_CHECK)
+        controller.add_tasks(
+            run.id,
+            [
+                {
+                    "id": "write",
+                    "description": "write",
+                    "provider": "codex",
+                    "side_effect": "worktree_write",
+                    "allowed_paths": ["write.txt"],
+                }
+            ],
+        )
+        completed = await controller.execute_run(run.id)
+        assert completed.status == RunStatus.COMPLETED, diagnostics(controller, run)
+    finally:
+        controller.close()

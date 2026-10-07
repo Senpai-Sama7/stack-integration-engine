@@ -9,7 +9,7 @@ import sys
 import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from stack_integration.config import Settings
 from stack_integration.contracts.models import (
@@ -21,6 +21,7 @@ from stack_integration.contracts.models import (
     CheckStatus,
     EvidenceKind,
     Finding,
+    Lease,
     Message,
     Project,
     Provider,
@@ -57,6 +58,8 @@ from stack_integration.workspaces import GitError, GitWorkspaceManager
 from .scheduler import LeaseError, Scheduler
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 OPERATOR_ACTOR = "local-operator"
 REVIEW_DIFF_LIMIT_BYTES = 200_000
@@ -343,6 +346,17 @@ class CollaborationController:
         )
 
     @staticmethod
+    async def _offload(function: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+        """Run blocking Git or filesystem work in a worker thread.
+
+        The event loop also renews task leases, enforces provider wall-time limits, and
+        serves cancellation. Creating a worktree, hashing a candidate, or diffing many
+        files can take seconds on a large repository; run synchronously, that stalls every
+        other task (a 3-task run on a 10k-file repository stalled the loop for 4.5 s).
+        """
+        return await asyncio.to_thread(function, *args, **kwargs)
+
+    @staticmethod
     def _opposite(provider: Provider) -> Provider:
         return Provider.CLAUDE if provider == Provider.CODEX else Provider.CODEX
 
@@ -375,21 +389,48 @@ class CollaborationController:
         actor_id = f"{task.owner_provider.value}-builder-{task.id}"
         actor_grant = self._grant_actor(task, actor_id, ActorRole.BUILDER)
         lease = self.scheduler.claim(task.id, actor_id)
-        task = self.database.get("task", task.id, Task)
+        # One heartbeat covers everything done while this process holds the lease:
+        # workspace setup, the provider call, and the scope/hash work before submission.
+        # Each of those can outlast the lease on a large repository, and a lapsed lease
+        # fails the submission.
+        heartbeat = asyncio.create_task(self._renew_lease(task.id, actor_id, lease.fencing_token))
+        try:
+            return await self._execute_claimed(task.id, run, project, actor_id, actor_grant, lease)
+        finally:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
+
+    async def _execute_claimed(
+        self,
+        task_id: str,
+        run: Run,
+        project: Project,
+        actor_id: str,
+        actor_grant: Grant,
+        lease: Lease,
+    ) -> Task:
+        task = self.database.get("task", task_id, Task)
         modifying = task.side_effect != SideEffect.READ_ONLY
         planned = self.workspaces.task_workspace_path(project, run.id, task.id)
         if planned.exists():
             workspace = planned
         else:
-            workspace = self.workspaces.create_task_workspace(
-                project, run.id, task.id, run.base_revision
+            workspace = await self._offload(
+                self.workspaces.create_task_workspace,
+                project,
+                run.id,
+                task.id,
+                run.base_revision,
             )
             # Read-only tasks compose too: a review of upstream work must see that work.
             dependency_commits = self._dependency_commits(task)
             if dependency_commits:
-                self.workspaces.compose_task_base(workspace, dependency_commits)
+                await self._offload(
+                    self.workspaces.compose_task_base, workspace, dependency_commits
+                )
         project_dir = self.workspaces.project_directory(project, workspace)
-        effective_base = self.workspaces.revision(workspace)
+        effective_base = await self._offload(self.workspaces.revision, workspace)
         task.workspace = str(workspace)
         self.database.save_task(task, expected_revision=task.revision)
         self.scheduler.transition(
@@ -415,9 +456,7 @@ class CollaborationController:
             **self._bridge_options(actor_grant),
         )
         logger.info("task %s: dispatching %s builder", task.id, task.owner_provider.value)
-        result = await self._execute_with_heartbeat(
-            task.id, actor_id, lease.fencing_token, request, task.owner_provider
-        )
+        result = await self.providers[task.owner_provider].execute(request)
         self._record_provider_result(task, actor_id, ActorRole.BUILDER, result)
         invalid_result = (
             None
@@ -458,15 +497,16 @@ class CollaborationController:
         )
         if modifying:
             try:
-                self.workspaces.enforce_scope(
+                changed = await self._offload(
+                    self.workspaces.enforce_scope,
                     workspace,
                     effective_base,
                     task.allowed_paths,
                     subdirectory=project.subdirectory,
                 )
-                candidate_hash = self.workspaces.candidate_hash(workspace)
-                if not self.workspaces.changed_paths(workspace, effective_base):
+                if not changed:
                     raise GitError("provider reported completion but produced no changes")
+                candidate_hash = await self._offload(self.workspaces.candidate_hash, workspace)
             except GitError as error:
                 self._publish_failure(task, actor_id, str(error))
                 return self.scheduler.transition(
@@ -494,7 +534,8 @@ class CollaborationController:
             task.acceptance_ids, review.requirement_coverage
         )
         candidate_drifted = modifying and (
-            self.workspaces.candidate_hash(workspace) != submitted.candidate_hash
+            await self._offload(self.workspaces.candidate_hash, workspace)
+            != submitted.candidate_hash
         )
         if candidate_drifted:
             self._publish_failure(
@@ -529,47 +570,40 @@ class CollaborationController:
             return self.scheduler.transition(
                 task.id, TaskStatus.CHANGES_REQUESTED, actor_id="controller"
             )
-        verified = self.scheduler.transition(task.id, TaskStatus.VERIFIED, actor_id="controller")
+        candidate_commit: str | None = None
+        if modifying:
+            # Commit first, then record VERIFIED and the commit together. The commit runs
+            # in a worker thread, so recording the status first would leave a window in
+            # which the dispatcher starts a dependent that finds no commit to build on.
+            candidate_commit = await self._offload(
+                self.workspaces.commit_candidate,
+                workspace,
+                f"stack-agent: {task.description[:68]}",
+            )
+        verified = self.scheduler.transition(
+            task.id,
+            TaskStatus.VERIFIED,
+            actor_id="controller",
+            candidate_commit=candidate_commit,
+        )
         logger.info("task %s: verified", task.id)
         if modifying:
-            verified.candidate_commit = self.workspaces.commit_candidate(
-                workspace, f"stack-agent: {task.description[:68]}"
-            )
-            verified.workspace = str(workspace)
-            self.database.save_task(verified, expected_revision=verified.revision)
-            return self.database.get("task", task.id, Task)
+            return verified
         return self.scheduler.transition(task.id, TaskStatus.INTEGRATED, actor_id="controller")
 
-    async def _execute_with_heartbeat(
-        self,
-        task_id: str,
-        actor_id: str,
-        fencing_token: int,
-        request: ProviderRequest,
-        provider: Provider,
-    ) -> Any:
+    async def _renew_lease(self, task_id: str, actor_id: str, fencing_token: int) -> None:
         interval = max(1, self.policy.policy.heartbeat_seconds)
-
-        async def renew() -> None:
-            while True:
-                await asyncio.sleep(interval)
-                try:
-                    self.scheduler.heartbeat(task_id, actor_id, fencing_token)
-                except LeaseError:
-                    # The lease is gone (revoked or superseded); renewing cannot help.
-                    return
-                except Exception:
-                    # A transient storage error must not silently stop renewal and let
-                    # a healthy worker's lease lapse into reconciliation.
-                    logger.warning("task %s: heartbeat failed; retrying", task_id, exc_info=True)
-
-        heartbeat_task = asyncio.create_task(renew())
-        try:
-            return await self.providers[provider].execute(request)
-        finally:
-            heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                self.scheduler.heartbeat(task_id, actor_id, fencing_token)
+            except LeaseError:
+                # The lease is gone (revoked or superseded); renewing cannot help.
+                return
+            except Exception:
+                # A transient storage error must not silently stop renewal and let a
+                # healthy worker's lease lapse into reconciliation.
+                logger.warning("task %s: heartbeat failed; retrying", task_id, exc_info=True)
 
     def _work_prompt(
         self,
@@ -690,7 +724,9 @@ class CollaborationController:
         reviewer_grant = self._grant_actor(task, reviewer_id, ActorRole.REVIEWER)
         diff = ""
         if task.side_effect != SideEffect.READ_ONLY:
-            diff = self._bounded_diff(self.workspaces.candidate_diff(workspace, base_revision))
+            diff = self._bounded_diff(
+                await self._offload(self.workspaces.candidate_diff, workspace, base_revision)
+            )
         prompt = (
             "Independently review the following fixed candidate from the other provider. "
             "Do not modify files or delegate. Check correctness, regressions, security, "
@@ -1169,15 +1205,22 @@ class CollaborationController:
             project, run.id, "integration", allow_reserved=True
         )
         if destination.exists():
-            self.workspaces.remove_task_workspace(project, destination)
-        workspace = self.workspaces.create_task_workspace(
-            project, run.id, "integration", run.base_revision, allow_reserved=True
+            await self._offload(self.workspaces.remove_task_workspace, project, destination)
+        workspace = await self._offload(
+            self.workspaces.create_task_workspace,
+            project,
+            run.id,
+            "integration",
+            run.base_revision,
+            allow_reserved=True,
         )
         head = run.base_revision
         for task in modifying:
-            head = self.workspaces.integrate_commit(workspace, task.candidate_commit or "", head)
+            head = await self._offload(
+                self.workspaces.integrate_commit, workspace, task.candidate_commit or "", head
+            )
         project_dir = self.workspaces.project_directory(project, workspace)
-        combined_hash = self.workspaces.candidate_hash(workspace)
+        combined_hash = await self._offload(self.workspaces.candidate_hash, workspace)
         definitions = self._check_definitions(project_dir, run)
         checks = [
             await self.verifier.run(
@@ -1192,7 +1235,9 @@ class CollaborationController:
         ]
         if not self.verifier.required_checks_pass(definitions, checks):
             raise RuntimeError("combined candidate verification failed")
-        reference = self.workspaces.publish_integration_ref(project, run.id, head)
+        reference = await self._offload(
+            self.workspaces.publish_integration_ref, project, run.id, head
+        )
         for task in modifying:
             current = self.database.get("task", task.id, Task)
             self.scheduler.transition(current.id, TaskStatus.INTEGRATED, actor_id="integrator")

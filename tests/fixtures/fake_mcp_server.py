@@ -41,6 +41,18 @@ for line in sys.stdin:
         elif name == "exit":
             print("fatal: server stopping", file=sys.stderr, flush=True)
             sys.exit(3)
+        elif name == "big":
+            # A response far past asyncio's 64 KiB default line limit, and a stderr line
+            # past the same limit with no newline-bounded shortcut.
+            sys.stderr.write("e" * 300_000 + "\n")
+            sys.stderr.flush()
+            send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {"content": [{"type": "text", "text": "x" * 300_000}]},
+                }
+            )
         elif name == "not_object":
             send({"jsonrpc": "2.0", "id": request["id"], "result": [1, 2]})
         else:

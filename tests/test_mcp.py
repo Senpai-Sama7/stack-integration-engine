@@ -70,3 +70,22 @@ async def test_nexus_adapter_admits_only_read_only_tools(tmp_path, monkeypatch):
         await adapter.call_read_only(tmp_path, "nexus_search", {})
     with pytest.raises(FileNotFoundError):
         NexusToolAdapter(tmp_path / "missing.js")
+
+
+@pytest.mark.asyncio
+async def test_large_responses_and_stderr_lines_do_not_break_the_client(tmp_path):
+    """asyncio's default 64 KiB line limit made any larger tool result (a NEXUS context
+    pack, a search result) raise ValueError, and a long stderr line crashed close()."""
+    async with McpStdioClient(SERVER, cwd=tmp_path, timeout=10) as client:
+        result = await client.call_tool("big", {})
+        assert len(result["content"][0]["text"]) == 300_000
+        assert await client.call_tool("echo", {"after": "big"})
+    assert all(len(line) <= 2000 for line in client.stderr)
+    assert client.stderr
+
+
+@pytest.mark.asyncio
+async def test_response_over_the_configured_limit_is_a_protocol_error(tmp_path):
+    async with McpStdioClient(SERVER, cwd=tmp_path, timeout=10, line_limit=100_000) as client:
+        with pytest.raises(McpProtocolError, match="line limit"):
+            await client.call_tool("big", {})
