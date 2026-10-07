@@ -133,7 +133,7 @@ and bounded work products — never authority. Full detail: [Architecture](docs/
 
 ## Quick start
 
-**Requirements:** Python 3.11+, Git, and at least one supported provider CLI. For two-team
+**Requirements:** Python 3.11+, Git 2.31+, and at least one supported provider CLI. For two-team
 operation, both `codex` and `claude` must already be authenticated through their normal login
 flows — this tool never asks for or stores credentials itself.
 

@@ -45,7 +45,11 @@ async def test_client_reports_malformed_output_and_server_exit(tmp_path):
     async with McpStdioClient(SERVER, cwd=tmp_path, timeout=5) as client:
         with pytest.raises(McpProtocolError, match="exited"):
             await client.call_tool("exit", {})
-        with pytest.raises(McpProtocolError, match="not running"):
+        # Which message appears depends on whether the dead process has been reaped yet (the
+        # write is refused up front), the write hits a closed pipe, or only stdout EOF
+        # reveals it. That varies with Python version and load; every path must be an
+        # McpProtocolError, never a raw ConnectionResetError or BrokenPipeError.
+        with pytest.raises(McpProtocolError, match="not running|exited"):
             await client.call_tool("echo", {})
 
 
@@ -89,3 +93,24 @@ async def test_response_over_the_configured_limit_is_a_protocol_error(tmp_path):
     async with McpStdioClient(SERVER, cwd=tmp_path, timeout=10, line_limit=100_000) as client:
         with pytest.raises(McpProtocolError, match="line limit"):
             await client.call_tool("big", {})
+
+
+@pytest.mark.asyncio
+async def test_write_to_a_dying_server_is_a_protocol_error_not_a_transport_error(tmp_path):
+    """Between the liveness check and the write the server can die before the loop reaps
+    it; the pipe then raises ConnectionResetError/BrokenPipeError."""
+    from types import SimpleNamespace
+
+    for failure in (ConnectionResetError("Connection lost"), BrokenPipeError()):
+
+        class DyingStdin:
+            def write(self, data):
+                return None
+
+            async def drain(self, _failure=failure):
+                raise _failure
+
+        client = McpStdioClient(SERVER, cwd=tmp_path)
+        client.process = SimpleNamespace(stdin=DyingStdin(), stdout=None, returncode=None)
+        with pytest.raises(McpProtocolError, match="not running"):
+            await client.notify("ping", {})

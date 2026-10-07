@@ -45,6 +45,13 @@
   pack or search result easily exceeds it), and one long stderr line crashed `close()` and masked
   the real error. The limit is 16 MiB and configurable; oversized responses are a clean
   `McpProtocolError`; stderr is read in bounded chunks.
+- The review diff failed on Git 2.55 when the worktree held an untracked nested repository: that
+  version records it as an intent-to-add gitlink and `git diff` then dies on it. Only files are
+  passed to Git now (NUL-separated, literal pathspecs, so glob characters, spaces, and non-ASCII
+  names are safe). Verified against Git 2.43, 2.51, and 2.55.
+- The MCP client let a raw `ConnectionResetError` or `BrokenPipeError` escape when the server died
+  just before a write; callers handle `McpProtocolError`. Found by stress-testing, where it failed
+  in every parallel worker on Python 3.11.
 - The lease heartbeat covered only the provider call. Workspace setup and the scope and hash work
   before submission could outlast a lease on a large repository and fail the submission.
 - Project Aurora did not load in Godot (scripts at the wrong paths, a missing main script, invalid

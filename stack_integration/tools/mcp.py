@@ -135,8 +135,13 @@ class McpStdioClient:
     async def _write(self, message: dict[str, Any]) -> None:
         if not self.process or not self.process.stdin or self.process.returncode is not None:
             raise McpProtocolError("MCP server is not running")
-        self.process.stdin.write(json.dumps(message, separators=(",", ":")).encode() + b"\n")
-        await self.process.stdin.drain()
+        try:
+            self.process.stdin.write(json.dumps(message, separators=(",", ":")).encode() + b"\n")
+            await self.process.stdin.drain()
+        except (ConnectionError, BrokenPipeError) as error:
+            # The server died between the liveness check above and this write, before the
+            # event loop reaped it. Callers handle McpProtocolError, not transport errors.
+            raise McpProtocolError("MCP server is not running") from error
 
     async def list_tools(self) -> list[dict[str, Any]]:
         result = await self.request("tools/list", {})

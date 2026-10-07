@@ -240,18 +240,36 @@ class GitWorkspaceManager:
                 "GIT_OBJECT_DIRECTORY": str(Path(scratch) / "objects"),
                 "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(objects),
             }
-            added = subprocess.run(
-                ["git", "add", "--intent-to-add", "--ignore-errors", "--all"],
-                cwd=root,
-                env=environment,
-                capture_output=True,
-                check=False,
-            )
-            if added.returncode != 0:
-                # --ignore-errors still adds every other path; say so rather than let the
-                # reviewer assume the diff is complete.
-                detail = added.stderr.decode(errors="replace").strip().splitlines()[:3]
-                notes.append(f"[controller: some paths could not be added to this diff: {detail}]")
+            # Only files go to `git add`. Untracked nested repositories are listed with a
+            # trailing slash and must stay out: Git 2.55 records one as an intent-to-add
+            # gitlink and then `git diff` dies on it ("does not have a commit checked out").
+            # Paths travel NUL-separated on stdin and match literally, so file names with
+            # glob characters, spaces, or non-ASCII text cannot be misread as patterns.
+            untracked = self._untracked(root)
+            files = [item for item in untracked if not item.endswith("/")]
+            if files:
+                added = subprocess.run(
+                    [
+                        "git",
+                        "add",
+                        "--intent-to-add",
+                        "--ignore-errors",
+                        "--pathspec-from-file=-",
+                        "--pathspec-file-nul",
+                    ],
+                    cwd=root,
+                    env={**environment, "GIT_LITERAL_PATHSPECS": "1"},
+                    input="\0".join(files).encode(errors="surrogateescape"),
+                    capture_output=True,
+                    check=False,
+                )
+                if added.returncode != 0:
+                    # --ignore-errors still adds every other path; say so rather than let
+                    # the reviewer assume the diff is complete.
+                    detail = added.stderr.decode(errors="replace").strip().splitlines()[:3]
+                    notes.append(
+                        f"[controller: some paths could not be added to this diff: {detail}]"
+                    )
             diff = subprocess.run(
                 ["git", "diff", "--no-ext-diff", "--no-color", base_revision, "--"],
                 cwd=root,
@@ -261,11 +279,9 @@ class GitWorkspaceManager:
             )
             if diff.returncode != 0:
                 raise GitError(diff.stderr.decode(errors="replace").strip() or "git diff failed")
-        for relative in sorted(self._untracked(root)):
-            target = root / relative
-            if target.is_dir() and not target.is_symlink():
-                # An untracked nested repository cannot be diffed; name it instead.
-                notes.append(f"new untracked directory (not diffed): {relative}")
+        for relative in sorted(item for item in untracked if item.endswith("/")):
+            # An untracked nested repository cannot be diffed; name it instead.
+            notes.append(f"new untracked directory (not diffed): {relative}")
         suffix = "".join(f"{note}\n" for note in notes)
         return diff.stdout.decode(errors="replace") + suffix
 

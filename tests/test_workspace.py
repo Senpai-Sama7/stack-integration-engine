@@ -145,3 +145,18 @@ def test_concurrent_workspace_creation_and_cleanup_are_safe(tmp_path):
         extra = pool.submit(manager.create_task_workspace, project, "other", "solo", base)
         assert len(cleanup.result()) == 8
         assert extra.result().is_dir()
+
+
+def test_candidate_diff_handles_awkward_file_names(tmp_path):
+    """New files are passed to git as literal paths: glob characters, spaces, and
+    non-ASCII names must appear in the diff, and a glob must not pull in other files."""
+    manager, workspace, base, _ = _repo_with_workspace(tmp_path)
+    names = ["weird[1]*.txt", "has space.txt", "naïve-café.txt", "-leading-dash.txt", "[ab].txt"]
+    for name in names:
+        (workspace / name).write_text(f"content of {name}\n")
+    (workspace / "a.txt").write_text("would match the [ab].txt glob\n")
+    diff = manager.candidate_diff(workspace, base)
+    for name in names:
+        assert f"+content of {name}" in diff, name
+    assert "+would match the [ab].txt glob" in diff
+    assert diff.count("new file mode") == len(names) + 1
