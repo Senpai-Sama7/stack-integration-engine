@@ -22,19 +22,36 @@ role, project root, timeout, output contract, and session identity.
 
 ## Lifecycle
 
-1. Register a Git project using its common directory identity.
+1. Register a Git project. A repository root is identified by its Git common directory; a
+   subdirectory (for example one package of a monorepo) is a distinct project whose scope paths,
+   checks, and provider working directory are relative to that subdirectory.
 2. Freeze a run objective, scope, base commit, acceptance version, and budget.
-3. Validate task IDs, dependencies, cycles, required capabilities, paths, and side effects.
-4. Atomically lease ready tasks. A monotonically increasing fencing token rejects late writers.
-5. Build a context artifact from the current task, evidence, messages, and source revision.
-6. Start Codex or Claude in a separate managed session. Modifying work receives a detached Git
-   worktree; read-only work receives the project root with read-only provider permissions.
-7. Register provider output as producer evidence. It does not verify itself.
-8. Freeze the candidate hash and assign the opposite provider to review it.
-9. Run project checks in an independent subprocess and store complete bounded logs.
-10. Mark the task verified only when review, requirement coverage, and checks all pass.
-11. Commit accepted worktree changes, serialize cherry-picks in an integration worktree, and rerun
-    combined checks against the resulting candidate.
+3. Validate task IDs, unknown fields, dependencies, cycles, required capabilities, side effects
+   (only `read_only` and `worktree_write` are admitted), and paths (normalized, inside the run
+   scope).
+4. Dispatch is event-driven: a task starts as soon as its dependencies verify, bounded by the
+   session and modifying-task limits. Each start atomically leases the task; a monotonically
+   increasing fencing token rejects late writers, and heartbeats keep the lease alive.
+5. Give every task its own detached Git worktree at the run's base revision, with the verified
+   commits of all transitive dependencies cherry-picked in dependency order (read-only reviews of
+   upstream work therefore see that work).
+6. Build a context artifact from the current task, evidence, messages, and source revision. The
+   prompt also carries operator `steer` instructions and, on retries, the previous review verdict
+   and findings.
+7. Start Codex or Claude in a separate managed session with read-only or worktree-write provider
+   permissions. Prompts over 100 KiB travel over stdin instead of argv (Linux limits one argument
+   to 128 KiB).
+8. Register provider output as producer evidence. It does not verify itself.
+9. Enforce the task's path scope on the changed files, freeze the candidate hash, and assign the
+   opposite provider to review a diff that includes newly created files.
+10. Run project checks in an independent subprocess (without the bridge credential and without
+    bytecode writes) and store complete bounded logs.
+11. Mark the task verified only when review, requirement coverage, and checks all pass and the
+    checks did not alter the reviewed candidate. Otherwise request changes, up to the policy's
+    attempt limit.
+12. Commit accepted worktree changes, cherry-pick them in dependency order in an integration
+    worktree, rerun combined checks, and publish the result as `refs/heads/stack-agent/<run-id>`
+    without touching the operator's checked-out branch or working tree.
 
 ## Storage
 
@@ -44,8 +61,10 @@ compare-and-swap. Artifacts are SHA-256 addressed under a per-project directory 
 every read.
 
 The current scale target is one local operator, at most six provider sessions, two modifying
-tasks, and two verification jobs. SQLite is intentionally retained until measurement demonstrates
-that a larger scheduler or multi-user database is necessary.
+tasks, and two verification jobs. The controller serializes statements on its shared SQLite
+connection, so the API's worker threads and the run loop can share it safely. SQLite is
+intentionally retained until measurement demonstrates that a larger scheduler or multi-user
+database is necessary.
 
 ## Provider modes
 

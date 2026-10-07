@@ -5,9 +5,9 @@ timestamps. Generate machine-readable schemas with `stack-agent schemas DIRECTOR
 
 | Record | Identity binding | Key invariant |
 |---|---|---|
-| Project | Git common directory | Worktrees of one repository share a project ID |
-| Run | Project, base commit | Objective, scope, acceptance, and budget are revisioned |
-| Task | Run, provider, role | Dependencies and required capabilities must be admitted |
+| Project | Git common directory (+ subdirectory) | Worktrees of one repository share a project ID; a subdirectory is its own project |
+| Run | Project, base commit | Objective, scope, acceptance, and budget are revisioned; `integration_commit`/`integration_ref` record the published result |
+| Task | Run, provider, role | Dependencies, capabilities, side effect (`read_only`/`worktree_write`), and in-scope paths must be admitted |
 | Lease | Task, actor, attempt | Only the current fencing token may submit |
 | Session | Task/run grant | Provider session IDs are explicit; “latest” is never inferred |
 | Artifact | Project/run/task | Bytes must match registered SHA-256 and size |
@@ -38,6 +38,10 @@ looked up by exact candidate hash.
 Provider commands return one of `completed`, `failed`, `timeout`, `cancelled`, or
 `protocol_error`. Codex requires valid JSONL and a `turn.completed` event. Claude requires a JSON
 `result` with `subtype: success` and `is_error: false`. A clean process exit alone is not success.
+
+Reviewer output is normalized before use: an unknown verdict, a non-list coverage field, or a
+malformed finding turns the review into an `abstain` with a high-severity finding instead of
+crashing the controller or counting as approval.
 
 Raw provider usage allows nested vendor metadata. The shared usage ledger extracts only known
 numeric fields; absent or opaque subscription cost remains unknown.

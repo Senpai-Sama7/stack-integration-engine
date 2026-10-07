@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from stack_integration import __version__
+
 
 class McpProtocolError(RuntimeError):
     pass
@@ -48,7 +50,7 @@ class McpStdioClient:
                 {
                     "protocolVersion": "2025-06-18",
                     "capabilities": {},
-                    "clientInfo": {"name": "stack-integration-engine", "version": "0.2.0"},
+                    "clientInfo": {"name": "stack-integration-engine", "version": __version__},
                 },
             )
             await self.notify("notifications/initialized", {})

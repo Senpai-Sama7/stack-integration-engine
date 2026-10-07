@@ -166,6 +166,10 @@ For a task that actually modifies files, set `side_effect` to `worktree_write` a
 you need a changed candidate, an opposite-provider approval, full requirement coverage, and
 passing independent checks — all four, every time.
 
+When a modifying run completes, the verified result is published as the branch
+`stack-agent/RUN_ID` in your repository. Your checked-out branch and working tree are never
+touched; review and merge that branch like any other.
+
 </details>
 
 <details>
@@ -193,14 +197,17 @@ you've built and independently reviewed your own credential/socket forwarding bo
 
 ```text
 doctor                     probe providers, authentication, NEXUS, and SDLC
-project add PATH           register a Git repository without modifying it
-plan SPEC PROJECT          validate and persist a run/task DAG
-run RUN_ID                 execute, cross-review, verify, and integrate
-status RUN_ID              show authoritative task states
+project add PATH           register a Git repository (or a subdirectory of one)
+plan SPEC PROJECT          validate and persist a run/task DAG (fails on unknown fields)
+run RUN_ID [--summary]     execute, cross-review, verify, and integrate
+runs                       list runs with status and task progress
+status RUN_ID              show authoritative task states and the result branch
 inspect KIND ID            inspect a versioned record
-steer RUN_ID TEXT          add an operator instruction to subsequent context
-pause/resume/cancel        control new dispatch
-report RUN_ID              export evidence and explicit limitations
+steer RUN_ID TEXT          add an operator instruction to later prompts (--task to target one)
+pause/resume/cancel        control dispatch; cancel stops in-flight provider processes
+task retry|cancel TASK_ID  operator recovery for awaiting-input, blocked, or stuck tasks
+report RUN_ID              export evidence, a summary, and explicit limitations
+cleanup RUN_ID             remove a finished run's worktrees (the result branch is kept)
 backup DESTINATION         create a consistent SQLite backup
 schemas DIRECTORY          generate contract JSON Schemas
 serve                      run the token-protected loopback dashboard/API
@@ -208,8 +215,11 @@ issue-grant                create a short-lived signed MCP bridge token
 ```
 
 State defaults to `~/.local/state/stack-agent` — override with `--state` or
-`STACK_AGENT_STATE`. The dashboard defaults to `127.0.0.1:8765`; remote listeners are rejected
-by local policy, full stop.
+`STACK_AGENT_STATE`. An optional `policy.json` in the state directory tunes concurrency, leases,
+timeouts, and retry limits (see the [operator guide](docs/OPERATOR_GUIDE.md#policy)). The dashboard
+defaults to `127.0.0.1:8765` and reads its token from `STATE/operator.token`; remote listeners are
+rejected by local policy, full stop. `--log-level DEBUG` shows controller decisions as they
+happen.
 
 </details>
 
@@ -261,6 +271,8 @@ Read the full threat model: [docs/SECURITY.md](docs/SECURITY.md).
 | [Compatibility matrix](docs/COMPATIBILITY.md) | Supported provider CLI versions/flags |
 | [Implementation status](docs/IMPLEMENTATION_PLAN.md) | What's built vs. planned |
 | [Live provider probe](docs/evidence/live-provider-probe.json) | Real capability probe output |
+| [Changelog](CHANGELOG.md) | What changed in each release |
+| [Project Aurora](project_aurora/README.md) | Example Godot project and the plan that drives it |
 
 ---
 
@@ -272,10 +284,12 @@ Don't take the pitch on faith — the whole point of this project is that you sh
 .venv/bin/ruff check stack_integration tests
 .venv/bin/ruff format --check stack_integration tests
 .venv/bin/mypy stack_integration
-.venv/bin/pytest --cov=stack_integration --cov-report=term-missing
+.venv/bin/pytest --cov=stack_integration --cov-report=term-missing   # gate: 80% branch coverage
 ```
 
-The deterministic suite exercises every controller invariant without spending model quota.
+The deterministic suite exercises every controller invariant without spending model quota. CI
+also builds and installs the wheel in isolation, smoke-tests the container's health and
+authentication, and runs the Project Aurora Godot suite headless.
 Live-provider checks are kept separate because provider availability and subscription quota are
 conditions outside this repo's control.
 

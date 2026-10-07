@@ -23,5 +23,14 @@ Observed locally on 2026-09-15. `doctor` is authoritative for the current machin
 | Claude interactive agent teams | no automated claim | Agent teams are interactive/experimental, not print-mode teams |
 | A2A remote workers | deferred | Local single-operator system has no multi-machine requirement |
 
+## Prompt transport
+
+Prompts up to 100 KiB are passed as the final argument, which is the path the live probe exercised.
+Larger prompts (typically reviews of large diffs, which previously failed with `E2BIG` because Linux
+caps one argument at 128 KiB) are piped over stdin: `codex exec ... -` and `claude --print` with no
+positional prompt. The stdin path is covered by deterministic tests of the generated commands but
+has not yet been re-probed against live CLIs; treat it as `untested` until `doctor`-era evidence is
+recorded.
+
 The live structured probe is stored in `docs/evidence/live-provider-probe.json`. It demonstrates
 compatibility, not correctness of arbitrary model output.

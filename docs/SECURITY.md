@@ -21,7 +21,15 @@ results. Worktrees isolate collaboration but share the host account and are not 
 - Opposite-provider review and exact-candidate evidence binding.
 - HMAC-SHA256 signed bridge grants, random nonces, expiry, constant-time signature checks, and a
   mode-0600 secret.
-- Loopback-only dashboard binding and a mode-0600 bearer token.
+- Loopback-only dashboard binding and a mode-0600 bearer token that `serve` does not echo by
+  default; the dashboard is served with a hash-based Content-Security-Policy (no inline-script
+  allowance), `X-Frame-Options: DENY`, `no-store` caching, and no OpenAPI/docs routes.
+- Verification commands run without `STACK_AGENT_GRANT` in their environment, so candidate code
+  under test cannot reuse the bridge credential.
+- Candidate commits skip repository hooks (`--no-verify`) and signing prompts, so the committed
+  tree is byte-for-byte the reviewed candidate; a formatting hook cannot change it after review.
+- Task side effects are limited to `read_only` and `worktree_write` at admission, and task IDs and
+  paths are validated before they reach the filesystem.
 - Push, deployment, delete, privilege, policy mutation, and scope expansion excluded from worker
   grants.
 
@@ -37,6 +45,10 @@ share one state directory between users, or treat this design as a hardened mult
 
 ## Secret handling
 
+Redaction covers authorization headers, bare bearer tokens, quoted or unquoted `key=value` secrets,
+environment-style `*_TOKEN`/`*_KEY`/`*_SECRET`/`*_PASSWORD`/`*_GRANT` assignments, private keys,
+JWTs, and known token formats (Anthropic, OpenAI, Stripe, GitHub, GitLab, Slack, AWS, Google), plus
+sensitive keys in structured payloads. It is conservative pattern matching, not a guarantee.
 Reports omit auth output beyond boolean/method capability. Provider stderr is bounded and should
 still be treated as potentially sensitive. Before sharing a report or artifact directory, run a
 secret scanner and review every included provider transcript.

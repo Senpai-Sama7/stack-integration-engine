@@ -9,7 +9,7 @@
 
 Each decision records the date, status, rationale, alternatives, and affected documents or files. Reversing a decision requires a new entry rather than rewriting history.
 
-## DEC-001 — Use Godot 4
+## DEC-001: Use Godot 4
 
 - **Date:** 2026-09-27
 - **Status:** Accepted
@@ -18,7 +18,7 @@ Each decision records the date, status, rationale, alternatives, and affected do
 - **Alternatives:** Unity, Unreal, custom engine.
 - **Affected:** `TECHNICAL_ARCHITECTURE.md`, project bootstrap.
 
-## DEC-002 — Build a 2D local vertical slice first
+## DEC-002: Build a 2D local vertical slice first
 
 - **Date:** 2026-09-27
 - **Status:** Accepted
@@ -27,7 +27,7 @@ Each decision records the date, status, rationale, alternatives, and affected do
 - **Alternatives:** Start with online multiplayer or a full roster.
 - **Affected:** `GAME_DESIGN.md`, `TESTING_STRATEGY.md`.
 
-## DEC-003 — Use Marvel/DC characters only in an authorized fan prototype
+## DEC-003: Use Marvel/DC characters only in an authorized fan prototype
 
 - **Date:** 2026-09-27
 - **Status:** Accepted with legal limitation
@@ -36,7 +36,7 @@ Each decision records the date, status, rationale, alternatives, and affected do
 - **Alternatives:** Use only original characters from the beginning.
 - **Affected:** `GAME_DESIGN.md`, `CHARACTER_SPEC.md`.
 
-## DEC-004 — Keep mechanics data-driven
+## DEC-004: Keep mechanics data-driven
 
 - **Date:** 2026-09-27
 - **Status:** Accepted
@@ -45,7 +45,7 @@ Each decision records the date, status, rationale, alternatives, and affected do
 - **Alternatives:** Hard-code each fighter in the combat engine.
 - **Affected:** `TECHNICAL_ARCHITECTURE.md`, `CHARACTER_SPEC.md`, `COMBAT_SPEC.md`.
 
-## DEC-005 — Fixed-step deterministic simulation
+## DEC-005: Fixed-step deterministic simulation
 
 - **Date:** 2026-09-27
 - **Status:** Accepted
@@ -54,7 +54,7 @@ Each decision records the date, status, rationale, alternatives, and affected do
 - **Alternatives:** Variable-step gameplay tied to rendered frames.
 - **Affected:** `TECHNICAL_ARCHITECTURE.md`, `MOVEMENT_SPEC.md`, `TESTING_STRATEGY.md`.
 
-## DEC-006 — Placeholder visuals before final assets
+## DEC-006: Placeholder visuals before final assets
 
 - **Date:** 2026-09-27
 - **Status:** Accepted
@@ -63,7 +63,7 @@ Each decision records the date, status, rationale, alternatives, and affected do
 - **Alternatives:** Import final commercial artwork immediately.
 - **Affected:** `GAME_DESIGN.md`, `STAGE_SPEC.md`.
 
-## DEC-007 — Stage data is authoritative; blast zones must enclose all geometry
+## DEC-007: Stage data is authoritative; blast zones must enclose all geometry
 
 - **Date:** 2026-10-07
 - **Status:** Accepted
@@ -72,7 +72,7 @@ Each decision records the date, status, rationale, alternatives, and affected do
 - **Alternatives:** Shrink the floor to fit the spec's blast zones; widen the blast zones in the spec text only.
 - **Affected:** `STAGE_SPEC.md`, `scripts/core/DataLoader.gd`, `tests/run_tests.gd`.
 
-## DEC-008 — Provisional foundation rules for collision, combat, and timers
+## DEC-008: Provisional foundation rules for collision, combat, and timers
 
 - **Date:** 2026-10-07
 - **Status:** Accepted (provisional; tuning requires a new decision)
@@ -88,7 +88,7 @@ Each decision records the date, status, rationale, alternatives, and affected do
 - **Alternatives:** Godot physics bodies (`CharacterBody2D`), which are harder to make bit-for-bit deterministic and cannot be tested without the physics server.
 - **Affected:** `MOVEMENT_SPEC.md`, `COMBAT_SPEC.md`, `scripts/core/FighterState.gd`, `scripts/combat/KnockbackModel.gd`.
 
-## DEC-009 — Simulation is independent of the scene tree
+## DEC-009: Simulation is independent of the scene tree
 
 - **Date:** 2026-10-07
 - **Status:** Accepted
