@@ -81,6 +81,7 @@ async def test_descendant_holding_pipes_cannot_hang_supervisor(tmp_path):
         [sys.executable, "-c", script], cwd=tmp_path, timeout=30
     )
     assert result.exit_code == 0
+    assert result.timed_out is False
     assert b"leader done" in result.stdout
     assert result.lingering_descendants is True
     assert result.duration_ms < 10_000

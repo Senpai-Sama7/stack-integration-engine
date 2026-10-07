@@ -119,7 +119,7 @@ class ProcessSupervisor:
         timed_out = False
         cancelled = False
         try:
-            await asyncio.wait_for(process.wait(), timeout)
+            await asyncio.wait_for(self._wait_for_exit(process), timeout)
         except TimeoutError:
             timed_out = True
             await self._terminate(process)
@@ -163,6 +163,24 @@ class ProcessSupervisor:
         return True
 
     @staticmethod
+    async def _wait_for_exit(process: asyncio.subprocess.Process) -> None:
+        """Return once the command itself exits.
+
+        Before Python 3.13, ``Process.wait()`` resolves only after every pipe closes,
+        so a descendant holding stdout open would make a finished command look hung.
+        ``returncode`` is set as soon as the child watcher reaps the process.
+        """
+        waiter = asyncio.ensure_future(process.wait())
+        try:
+            while process.returncode is None and not waiter.done():
+                await asyncio.wait({waiter}, timeout=0.05)
+        finally:
+            if not waiter.done():
+                waiter.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await waiter
+
+    @staticmethod
     async def _feed(writer: asyncio.StreamWriter, data: bytes) -> None:
         try:
             writer.write(data)
@@ -188,7 +206,7 @@ class ProcessSupervisor:
         if process.returncode is None:
             self._signal_group(process.pid, signal.SIGTERM)
         try:
-            await asyncio.wait_for(process.wait(), self.kill_grace)
+            await asyncio.wait_for(self._wait_for_exit(process), self.kill_grace)
         except TimeoutError:
             self._signal_group(process.pid, signal.SIGKILL)
-            await process.wait()
+            await self._wait_for_exit(process)
