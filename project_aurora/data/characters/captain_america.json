@@ -1,12 +1,15 @@
 {
+  "id": "captain_america",
   "name": "Captain America",
   "display_name": "Captain America",
   "role": "balanced_tactical_fighter",
+  "color": "#d13434",
   "stats": {
     "weight": 1.0,
     "run_speed": 220.0,
     "jump_force": 540.0,
     "air_control": 0.6,
+    "air_jumps": 1,
     "stocks": 3,
     "damage_scale": 1.0
   },
@@ -14,5 +17,31 @@
     "shield_bash",
     "shield_throw",
     "shield_leap"
-  ]
+  ],
+  "attacks": {
+    "light": {
+      "id": "cap_shield_bash",
+      "startup_ticks": 4,
+      "active_ticks": 3,
+      "recovery_ticks": 10,
+      "damage": 6.0,
+      "base_knockback": 180.0,
+      "knockback_growth": 3.0,
+      "angle_degrees": 35.0,
+      "hitstun_multiplier": 2.0,
+      "hitbox": {"x": 14.0, "y": -40.0, "width": 30.0, "height": 26.0}
+    },
+    "heavy": {
+      "id": "cap_shield_uppercut",
+      "startup_ticks": 10,
+      "active_ticks": 4,
+      "recovery_ticks": 20,
+      "damage": 13.0,
+      "base_knockback": 260.0,
+      "knockback_growth": 5.0,
+      "angle_degrees": 70.0,
+      "hitstun_multiplier": 2.0,
+      "hitbox": {"x": 10.0, "y": -64.0, "width": 30.0, "height": 40.0}
+    }
+  }
 }

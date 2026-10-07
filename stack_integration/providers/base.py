@@ -16,6 +16,18 @@ from stack_integration.contracts.models import (
 )
 from stack_integration.providers.process import ProcessSupervisor
 
+# Linux caps a single argv string at MAX_ARG_STRLEN (32 pages = 128 KiB). Review prompts
+# embed candidate diffs, so larger prompts travel over stdin instead of failing with E2BIG.
+ARGV_PROMPT_LIMIT_BYTES = 100 * 1024
+
+
+def prompt_transport(prompt: str) -> tuple[str | None, bytes | None]:
+    """Return ``(argv_prompt, stdin_bytes)``; exactly one is set."""
+    encoded = prompt.encode()
+    if len(encoded) <= ARGV_PROMPT_LIMIT_BYTES:
+        return prompt, None
+    return None, encoded
+
 
 class ProviderAdapter(ABC):
     provider: Provider

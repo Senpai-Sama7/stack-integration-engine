@@ -1,12 +1,15 @@
 {
+  "id": "batman",
   "name": "Batman",
   "display_name": "Batman",
   "role": "technical_mobility_fighter",
+  "color": "#1a66ff",
   "stats": {
     "weight": 0.95,
     "run_speed": 210.0,
     "jump_force": 530.0,
     "air_control": 0.8,
+    "air_jumps": 1,
     "stocks": 3,
     "damage_scale": 0.95
   },
@@ -14,5 +17,31 @@
     "baton_strike",
     "projectile_tether",
     "grapple_recovery"
-  ]
+  ],
+  "attacks": {
+    "light": {
+      "id": "bat_baton_strike",
+      "startup_ticks": 3,
+      "active_ticks": 3,
+      "recovery_ticks": 9,
+      "damage": 5.0,
+      "base_knockback": 170.0,
+      "knockback_growth": 3.0,
+      "angle_degrees": 30.0,
+      "hitstun_multiplier": 2.0,
+      "hitbox": {"x": 14.0, "y": -38.0, "width": 28.0, "height": 22.0}
+    },
+    "heavy": {
+      "id": "bat_cape_sweep",
+      "startup_ticks": 9,
+      "active_ticks": 5,
+      "recovery_ticks": 18,
+      "damage": 11.0,
+      "base_knockback": 240.0,
+      "knockback_growth": 4.5,
+      "angle_degrees": 20.0,
+      "hitstun_multiplier": 2.0,
+      "hitbox": {"x": 8.0, "y": -22.0, "width": 44.0, "height": 22.0}
+    }
+  }
 }

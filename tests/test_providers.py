@@ -111,3 +111,57 @@ async def test_provider_commands_attach_bridge_without_token_in_arguments(tmp_pa
     assert "sensitive-token" not in " ".join(claude_args)
     assert codex_options["env"]["STACK_AGENT_GRANT"] == "sensitive-token"
     assert claude_options["env"]["STACK_AGENT_GRANT"] == "sensitive-token"
+
+
+def _request(tmp_path: Path, prompt: str, **overrides) -> ProviderRequest:
+    values = {
+        "task_id": "task",
+        "project_root": str(tmp_path),
+        "prompt": prompt,
+        "role": ActorRole.REVIEWER,
+        "read_only": True,
+        **overrides,
+    }
+    return ProviderRequest(**values)
+
+
+@pytest.mark.asyncio
+async def test_small_prompts_stay_on_argv(tmp_path: Path):
+    codex_process = RecordingSupervisor("codex")
+    claude_process = RecordingSupervisor("claude")
+    await CodexAdapter(supervisor=codex_process).execute(_request(tmp_path, "inspect"))
+    await ClaudeAdapter(supervisor=claude_process).execute(_request(tmp_path, "inspect"))
+    for supervisor in (codex_process, claude_process):
+        args, options = supervisor.calls[0]
+        assert args[-1] == "inspect"
+        assert options["stdin"] is None
+
+
+@pytest.mark.asyncio
+async def test_oversized_prompts_travel_over_stdin_not_argv(tmp_path: Path):
+    """A single argv string over 128 KiB fails with E2BIG on Linux; review prompts
+    embed diffs up to 200 KB, so they must be piped instead."""
+    prompt = "review " + "d" * (300 * 1024)
+    codex_process = RecordingSupervisor("codex")
+    claude_process = RecordingSupervisor("claude")
+    await CodexAdapter(supervisor=codex_process).execute(_request(tmp_path, prompt))
+    await ClaudeAdapter(supervisor=claude_process).execute(_request(tmp_path, prompt))
+    codex_args, codex_options = codex_process.calls[0]
+    claude_args, claude_options = claude_process.calls[0]
+    assert codex_args[-1] == "-"
+    assert codex_options["stdin"] == prompt.encode()
+    assert prompt not in claude_args
+    assert claude_options["stdin"] == prompt.encode()
+    assert max(len(item.encode()) for item in codex_args + claude_args) < 128 * 1024
+
+
+@pytest.mark.asyncio
+async def test_claude_prompt_never_follows_variadic_mcp_config(tmp_path: Path):
+    supervisor = RecordingSupervisor("claude")
+    await ClaudeAdapter(supervisor=supervisor).execute(
+        _request(tmp_path, "inspect", mcp_server_command=["python3", "-m", "bridge"])
+    )
+    args, _ = supervisor.calls[0]
+    config_index = args.index("--mcp-config")
+    assert args[config_index + 2].startswith("--")
+    assert args[-1] == "inspect"

@@ -3,14 +3,21 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
@@ -19,10 +26,72 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: pyproject.toml
       - run: python -m pip install '.[dev,api]'
       - run: ruff check stack_integration tests
       - run: ruff format --check stack_integration tests
       - run: mypy stack_integration
+      # Coverage threshold lives in pyproject.toml ([tool.coverage.report] fail_under).
       - run: pytest --cov=stack_integration --cov-report=term-missing
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build
       - run: python -m build
-        if: matrix.python-version == '3.12'
+      - name: Install the wheel in an isolated environment
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-env"
+          "$RUNNER_TEMP/wheel-env/bin/pip" install dist/*.whl
+          "$RUNNER_TEMP/wheel-env/bin/stack-agent" --version
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/wheel-env/bin/stack-agent" schemas schemas-check
+
+  aurora:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GODOT_VERSION: 4.2.2
+      GODOT_SHA256: 69eb9881e1b82ab93924c83106a7c031497f252bc0c08e199e4da6380072d6ef
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot (checksum-pinned)
+        run: |
+          curl -fsSL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          echo "${GODOT_SHA256}  godot.zip" | sha256sum --check
+          unzip -q godot.zip
+          sudo install -m 0755 "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+      - name: Deterministic test suite
+        working-directory: project_aurora
+        run: godot --headless --path . -s res://tests/run_tests.gd
+      - name: Load, compile, and boot validation
+        working-directory: project_aurora
+        run: godot --headless --path . -s res://tools/validate_project.gd
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t stack-agent:ci .
+      - name: Smoke-test health and operator authentication
+        run: |
+          docker run -d --name stack-agent -p 127.0.0.1:8765:8765 stack-agent:ci \
+            uvicorn stack_integration.api.main:create_app --factory --host 0.0.0.0 --port 8765
+          for attempt in $(seq 1 30); do
+            curl -fsS 127.0.0.1:8765/health && break
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' 127.0.0.1:8765/api/runs)" = 401
+          token="$(docker exec stack-agent cat /var/lib/stack-agent/operator.token)"
+          test "$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${token}" 127.0.0.1:8765/api/runs)" = 200
+          test "$(docker exec stack-agent stat -c '%a %U' /var/lib/stack-agent/operator.token)" \
+            = "600 stackagent"
+      - if: always()
+        run: docker logs stack-agent || true

@@ -1,6 +1,8 @@
 """Event bus for cross-service communication."""
 
+import inspect
 import logging
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
@@ -37,30 +39,31 @@ class Event(BaseModel):
 class EventBus:
     """Event bus for system-wide messaging."""
 
-    def __init__(self):
-        self.subscribers: dict[str, list[Callable]] = {}
-        self.event_log: list[Event] = []
+    def __init__(self, max_log_size: int = 1000) -> None:
+        if max_log_size < 1:
+            raise ValueError("max_log_size must be positive")
+        self.subscribers: dict[str, list[Callable[[Event], Any]]] = {}
+        # Bounded so a long-lived process cannot grow memory without limit.
+        self.event_log: deque[Event] = deque(maxlen=max_log_size)
         self.logger = logger
 
-    def subscribe(self, event_type: EventType, handler: Callable) -> None:
-        """Subscribe to an event type."""
-        if event_type not in self.subscribers:
-            self.subscribers[event_type] = []
-        self.subscribers[event_type].append(handler)
-        self.logger.info(f"Subscribed {handler.__name__} to {event_type}")
+    def subscribe(self, event_type: EventType, handler: Callable[[Event], Any]) -> None:
+        """Subscribe a synchronous or asynchronous handler to an event type."""
+        self.subscribers.setdefault(event_type, []).append(handler)
+        name = getattr(handler, "__name__", repr(handler))
+        self.logger.info("Subscribed %s to %s", name, event_type)
 
     async def publish(self, event: Event) -> None:
-        """Publish an event."""
+        """Publish an event; one failing handler never prevents the others."""
         self.event_log.append(event)
-        self.logger.info(f"Published event {event.type} from {event.source}")
-
-        # Call all subscribers
-        handlers = self.subscribers.get(event.type, [])
-        for handler in handlers:
+        self.logger.info("Published event %s from %s", event.type, event.source)
+        for handler in list(self.subscribers.get(event.type, [])):
             try:
-                await handler(event)
-            except Exception as e:
-                self.logger.error(f"Error in event handler: {e}", exc_info=True)
+                outcome = handler(event)
+                if inspect.isawaitable(outcome):
+                    await outcome
+            except Exception:
+                self.logger.exception("Error in event handler")
 
     def get_events(
         self,
@@ -69,7 +72,7 @@ class EventBus:
         limit: int = 100,
     ) -> list[Event]:
         """Query event log."""
-        events = self.event_log
+        events = list(self.event_log)
         if event_type:
             events = [e for e in events if e.type == event_type]
         if source:

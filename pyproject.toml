@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stack-integration-engine"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Local, durable orchestration for collaborating Codex and Claude CLI teams"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,9 @@ dev = [
 [project.scripts]
 stack-agent = "stack_integration.cli:app"
 
+[tool.setuptools.dynamic]
+version = {attr = "stack_integration.__version__"}
+
 [tool.setuptools.packages.find]
 include = ["stack_integration*"]
 
@@ -52,3 +55,16 @@ plugins = ["pydantic.mypy"]
 addopts = "-q"
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+  # Upstream starlette deprecation emitted by fastapi.testclient itself.
+  "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["stack_integration"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 80

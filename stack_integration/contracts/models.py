@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -170,9 +171,18 @@ class Project(StrictModel):
     id: str
     root: str
     git_common_dir: str
+    subdirectory: str = "."
     context_policy: Literal["project_only"] = "project_only"
     revision: int = 1
     created_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("subdirectory")
+    @classmethod
+    def relative_subdirectory(cls, value: str) -> str:
+        candidate = PurePosixPath(value)
+        if candidate.is_absolute() or ".." in candidate.parts or "\\" in value:
+            raise ValueError("project subdirectory must be a normalized relative path")
+        return candidate.as_posix() or "."
 
 
 class Budget(StrictModel):
@@ -192,6 +202,8 @@ class Run(Record):
     status: RunStatus = RunStatus.PLANNED
     budget: Budget = Field(default_factory=Budget)
     checks: list[CheckDefinition] = Field(default_factory=list)
+    integration_commit: str | None = None
+    integration_ref: str | None = None
     revision: int = 1
 
     @model_validator(mode="after")

@@ -15,6 +15,8 @@ from stack_integration.providers.process import ProcessSupervisor
 from stack_integration.security import redact_text
 from stack_integration.storage import ArtifactStore, ControllerDatabase
 
+VERIFICATION_ENV_DENYLIST = ("STACK_AGENT_GRANT",)
+
 
 class VerificationRunner:
     def __init__(
@@ -41,7 +43,11 @@ class VerificationRunner:
             definition.command,
             cwd=cwd,
             timeout=definition.timeout_seconds,
-            env=definition.environment,
+            # Bytecode caches would otherwise appear as untracked files and register as
+            # candidate drift. A definition may still override this explicitly.
+            env={"PYTHONDONTWRITEBYTECODE": "1", **definition.environment},
+            # Checks execute candidate code: never hand them a bridge credential.
+            remove_env=VERIFICATION_ENV_DENYLIST,
         )
         combined = b"$ " + " ".join(definition.command).encode() + b"\n" + result.stdout
         if result.stderr:
@@ -81,15 +87,22 @@ class VerificationRunner:
         self.database.put("check", check, actor_id="independent-verifier")
         return check
 
-    @staticmethod
-    def _tests_collected(output: str) -> int:
-        patterns = [
-            r"collected\s+(\d+)\s+items?",
-            r"(\d+)\s+(?:passed|failed|skipped|deselected)(?:[,\s]|$)",
-            r"Tests:\s+(?:\d+\s+failed,\s+)?(\d+)\s+(?:passed|total)",
-        ]
+    # Counts are bounded to 9 digits and anchored so a match can only start at the first
+    # digit of a number. An unanchored `(\d+)` is quadratic on a long run of digits: the
+    # greedy match is retried from every digit of the run. Check output is untrusted
+    # (candidate test code can print anything), so this must stay linear.
+    _TEST_COUNT_PATTERNS = (
+        re.compile(r"collected\s+(\d{1,9})\s+items?"),
+        re.compile(r"(?<!\d)(\d{1,9})\s+(?:passed|failed|skipped|deselected)(?:[,\s]|$)"),
+        re.compile(r"Tests:\s+(?:\d{1,9}\s+failed,\s+)?(\d{1,9})\s+(?:passed|total)"),
+    )
+
+    @classmethod
+    def _tests_collected(cls, output: str) -> int:
         values = [
-            int(match.group(1)) for pattern in patterns for match in re.finditer(pattern, output)
+            int(match.group(1))
+            for pattern in cls._TEST_COUNT_PATTERNS
+            for match in pattern.finditer(output)
         ]
         return max(values, default=0)
 

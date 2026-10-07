@@ -149,6 +149,30 @@
       "title": "Id",
       "type": "string"
     },
+    "integration_commit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Integration Commit"
+    },
+    "integration_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Integration Ref"
+    },
     "objective": {
       "minLength": 1,
       "title": "Objective",

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import builtins
 import json
-import shutil
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -19,7 +18,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from stack_integration.contracts.models import Event, Project, Run, Task, new_id
+from stack_integration.contracts.models import Event, Project, Run, Task, new_id, utc_now
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -84,12 +83,8 @@ class ControllerDatabase:
     def __init__(self, path: str | Path):
         self.path = Path(path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(
-            self.path, timeout=30, isolation_level=None, check_same_thread=False
-        )
-        self._connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
-        self._configure()
+        self._connect()
         self.migrate()
 
     def _configure(self) -> None:
@@ -97,6 +92,13 @@ class ControllerDatabase:
         self._connection.execute("PRAGMA synchronous=FULL")
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.execute("PRAGMA busy_timeout=30000")
+
+    def _connect(self) -> None:
+        self._connection = sqlite3.connect(
+            self.path, timeout=30, isolation_level=None, check_same_thread=False
+        )
+        self._connection.row_factory = sqlite3.Row
+        self._configure()
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -109,6 +111,16 @@ class ControllerDatabase:
                 raise
             else:
                 self._connection.commit()
+
+    def _fetchone(self, sql: str, parameters: tuple[Any, ...] | list[Any] = ()) -> Any:
+        # The connection is shared across threads (API worker threads, bridge
+        # verification); serialize every statement, not only writes.
+        with self._lock:
+            return self._connection.execute(sql, parameters).fetchone()
+
+    def _fetchall(self, sql: str, parameters: tuple[Any, ...] | list[Any] = ()) -> list[Any]:
+        with self._lock:
+            return self._connection.execute(sql, parameters).fetchall()
 
     def migrate(self) -> None:
         with self.transaction() as connection:
@@ -143,12 +155,8 @@ class ControllerDatabase:
         record_id = str(body["id"])
         project_id = str(body.get("project_id", record_id))
         run_id = body.get("run_id")
-        now = (
-            body.get("created_at")
-            or __import__("datetime").datetime.now(__import__("datetime").UTC).isoformat()
-        )
-        if not isinstance(now, str):
-            now = now.isoformat()
+        now = utc_now().isoformat()
+        created_at = str(body.get("created_at") or now)
         with self.transaction() as connection:
             row = connection.execute(
                 "SELECT revision, created_at FROM records WHERE kind=? AND id=?",
@@ -177,7 +185,7 @@ class ControllerDatabase:
                     run_id,
                     revision,
                     payload,
-                    row["created_at"] if row else now,
+                    row["created_at"] if row else created_at,
                     now,
                 ),
             )
@@ -199,12 +207,19 @@ class ControllerDatabase:
         return revision
 
     def get(self, kind: str, record_id: str, model_type: type[ModelT]) -> ModelT:
-        row = self._connection.execute(
-            "SELECT body FROM records WHERE kind=? AND id=?", (kind, record_id)
-        ).fetchone()
+        return model_type.model_validate_json(self.get_raw(kind, record_id))
+
+    def get_raw(self, kind: str, record_id: str) -> str:
+        row = self._fetchone("SELECT body FROM records WHERE kind=? AND id=?", (kind, record_id))
         if row is None:
             raise NotFoundError(f"{kind}/{record_id}")
-        return model_type.model_validate_json(row["body"])
+        return str(row["body"])
+
+    def exists(self, kind: str, record_id: str) -> bool:
+        return (
+            self._fetchone("SELECT 1 FROM records WHERE kind=? AND id=?", (kind, record_id))
+            is not None
+        )
 
     def list(
         self,
@@ -222,11 +237,42 @@ class ControllerDatabase:
         if run_id is not None:
             clauses.append("run_id=?")
             values.append(run_id)
-        rows = self._connection.execute(
+        rows = self._fetchall(
             f"SELECT body FROM records WHERE {' AND '.join(clauses)} ORDER BY created_at, id",
             values,
-        ).fetchall()
+        )
         return [model_type.model_validate_json(row["body"]) for row in rows]
+
+    def status_counts(self, kind: str) -> dict[str, dict[str, int]]:
+        """Per-run tallies of each record's ``status``, as ``{run_id: {status: count}}``.
+
+        One aggregate query instead of loading and validating every record: a dashboard
+        poll over 12,000 tasks parsed 12,000 models and ran one query per run.
+        """
+        try:
+            rows = self._fetchall(
+                "SELECT run_id, json_extract(body, '$.status') AS status, COUNT(*) AS total "
+                "FROM records WHERE kind=? AND run_id IS NOT NULL GROUP BY run_id, status",
+                (kind,),
+            )
+            counts: dict[str, dict[str, int]] = {}
+            for row in rows:
+                if row["status"] is not None:
+                    counts.setdefault(str(row["run_id"]), {})[str(row["status"])] = int(
+                        row["total"]
+                    )
+            return counts
+        except sqlite3.OperationalError:
+            # A SQLite build without the JSON functions: count in Python instead.
+            fallback: dict[str, dict[str, int]] = {}
+            for row in self._fetchall(
+                "SELECT run_id, body FROM records WHERE kind=? AND run_id IS NOT NULL", (kind,)
+            ):
+                status = json.loads(row["body"]).get("status")
+                if status is not None:
+                    bucket = fallback.setdefault(str(row["run_id"]), {})
+                    bucket[str(status)] = bucket.get(str(status), 0) + 1
+            return fallback
 
     def save_project(self, project: Project) -> int:
         return self.put("project", project)
@@ -247,14 +293,12 @@ class ControllerDatabase:
         return int(target.execute("SELECT value FROM counters WHERE name=?", (name,)).fetchone()[0])
 
     def pending_events(self, limit: int = 100) -> builtins.list[Event]:
-        rows = self._connection.execute(
+        rows = self._fetchall(
             "SELECT body FROM outbox WHERE delivered_at IS NULL ORDER BY sequence LIMIT ?", (limit,)
-        ).fetchall()
+        )
         return [Event.model_validate_json(row["body"]) for row in rows]
 
     def mark_event_delivered(self, event_id: str) -> None:
-        from stack_integration.contracts.models import utc_now
-
         with self.transaction() as connection:
             connection.execute(
                 "UPDATE outbox SET delivered_at=? WHERE event_id=? AND delivered_at IS NULL",
@@ -262,8 +306,6 @@ class ControllerDatabase:
             )
 
     def deduplicate_message(self, message_id: str) -> bool:
-        from stack_integration.contracts.models import utc_now
-
         with self.transaction() as connection:
             cursor = connection.execute(
                 "INSERT OR IGNORE INTO message_dedup(message_id,received_at) VALUES(?,?)",
@@ -273,26 +315,40 @@ class ControllerDatabase:
 
     def backup(self, destination: str | Path) -> Path:
         target = Path(destination).expanduser().resolve()
+        if target == self.path:
+            raise ValueError("backup destination must differ from the live database")
         target.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(target) as backup_connection:
-            self._connection.backup(backup_connection)
+        backup_connection = sqlite3.connect(target)
+        try:
+            with self._lock:
+                self._connection.backup(backup_connection)
+        finally:
+            # ``with sqlite3.connect(...)`` only commits; it never closes.
+            backup_connection.close()
         return target
 
     def restore_from(self, source: str | Path) -> None:
+        """Replace live state with a backup through SQLite's online backup API.
+
+        Copying the file over a WAL-mode database would leave stale ``-wal``/``-shm``
+        companions that SQLite could replay on top of the restored pages.
+        """
         source_path = Path(source).expanduser().resolve()
         if not source_path.is_file():
             raise FileNotFoundError(source_path)
-        self.close()
-        shutil.copy2(source_path, self.path)
-        self._connection = sqlite3.connect(
-            self.path, timeout=30, isolation_level=None, check_same_thread=False
-        )
-        self._connection.row_factory = sqlite3.Row
-        self._configure()
+        if source_path == self.path:
+            raise ValueError("restore source must differ from the live database")
+        source_connection = sqlite3.connect(f"{source_path.as_uri()}?mode=ro", uri=True)
+        try:
+            with self._lock:
+                source_connection.backup(self._connection)
+        finally:
+            source_connection.close()
         self.migrate()
 
     def close(self) -> None:
-        self._connection.close()
+        with self._lock:
+            self._connection.close()
 
     def __enter__(self) -> ControllerDatabase:
         return self

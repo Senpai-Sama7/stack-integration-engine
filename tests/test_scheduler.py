@@ -79,3 +79,30 @@ def test_admission_rejects_existing_task_ids(database: ControllerDatabase):
     scheduler.admit_tasks([task("a")])
     with pytest.raises(AdmissionError, match="already exist"):
         scheduler.admit_tasks([task("a")])
+
+
+def test_candidate_commit_is_recorded_atomically_with_verification(database: ControllerDatabase):
+    scheduler = Scheduler(database)
+    scheduler.admit_tasks([task("a")])
+    lease = scheduler.claim("a", "codex")
+    scheduler.transition(
+        "a", TaskStatus.RUNNING, actor_id="codex", fencing_token=lease.fencing_token
+    )
+    scheduler.transition(
+        "a",
+        TaskStatus.SUBMITTED,
+        actor_id="codex",
+        fencing_token=lease.fencing_token,
+        candidate_hash="hash",
+    )
+    scheduler.transition("a", TaskStatus.REVIEWING, actor_id="controller")
+    with pytest.raises(ValueError, match="only be recorded when verifying"):
+        scheduler.transition(
+            "a", TaskStatus.CHANGES_REQUESTED, actor_id="controller", candidate_commit="abc"
+        )
+    verified = scheduler.transition(
+        "a", TaskStatus.VERIFIED, actor_id="controller", candidate_commit="abc"
+    )
+    assert verified.candidate_commit == "abc"
+    stored = database.get("task", "a", Task)
+    assert (stored.status, stored.candidate_commit) == (TaskStatus.VERIFIED, "abc")

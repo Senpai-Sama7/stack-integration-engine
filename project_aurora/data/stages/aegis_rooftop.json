@@ -1,4 +1,5 @@
 {
+  "id": "aegis_rooftop",
   "name": "Aegis Rooftop",
   "display_name": "Aegis Rooftop",
   "platforms": [
@@ -16,5 +17,6 @@
   "spawn_points": [
     {"x": -180, "y": 0},
     {"x": 180, "y": 0}
-  ]
+  ],
+  "respawn_invulnerability_ticks": 90
 }
