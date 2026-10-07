@@ -22,6 +22,8 @@
 - Artifact temp files collided between threads; restoring a backup copied files over a live WAL
   database.
 - A transient storage error permanently stopped lease heartbeats.
+- Scope enforcement misread non-ASCII file names (Git quoted them); an untracked nested repository
+  crashed the review diff; `cleanup` aborted on a directory that was not a registered worktree.
 - Malformed reviewer output (unknown verdict, malformed findings) crashed the task instead of
   abstaining.
 - Claude's positional prompt could be swallowed by the variadic `--mcp-config`.
@@ -38,7 +40,8 @@
 ### Added
 
 - Event-driven dispatch: dependents start as soon as prerequisites verify; operator cancel stops
-  in-flight provider processes.
+  in-flight provider processes. Budgets stop model dispatch (with a recorded reason) but no longer
+  prevent integrating a fully verified run.
 - Verified results are published as `refs/heads/stack-agent/RUN_ID`; runs record
   `integration_commit` and `integration_ref`.
 - Repository subdirectories (monorepo packages) as projects.

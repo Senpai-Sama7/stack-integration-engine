@@ -623,3 +623,85 @@ def test_policy_file_is_loaded_from_state_root(tmp_path: Path):
     (state / "policy.json").write_text(json.dumps({"schedulng": {}}))
     with pytest.raises(ValueError, match="unknown policy sections"):
         CollaborationController(Settings.load(state))
+
+
+@pytest.mark.asyncio
+async def test_verified_run_integrates_even_after_cost_budget_is_spent(tmp_path: Path):
+    """A budget stops model dispatch, not integration: a cumulative cost budget must not
+    leave a fully verified run permanently unfinishable."""
+    from stack_integration.contracts.models import Budget, Usage
+
+    repo = make_repo(tmp_path / "repo")
+    controller = controller_for(tmp_path, [])
+    try:
+        run = controller.create_run(
+            repo, "budget", ["REQ-1"], budget=Budget(reported_cost_usd=1.0), checks=NOOP_CHECK
+        )
+        controller.add_tasks(
+            run.id,
+            [
+                {
+                    "id": "write",
+                    "description": "write",
+                    "provider": "codex",
+                    "side_effect": "worktree_write",
+                    "allowed_paths": ["write.txt"],
+                }
+            ],
+        )
+        await controller.execute_task("write")
+        assert controller.database.get("task", "write", Task).status == TaskStatus.VERIFIED
+        controller.database.put(
+            "usage",
+            Usage(
+                id=new_id("usage"),
+                project_id=run.project_id,
+                run_id=run.id,
+                session_id="s",
+                reported_cost_usd=5.0,
+                source="test",
+            ),
+        )
+        completed = await controller.execute_run(run.id)
+        assert completed.status == RunStatus.COMPLETED, diagnostics(controller, run)
+        assert completed.integration_ref
+    finally:
+        controller.close()
+
+
+def test_scope_enforcement_handles_non_ascii_paths(tmp_path: Path):
+    repo = make_repo(tmp_path / "repo", {"src/café.txt": "v1\n"})
+    manager = GitWorkspaceManager(tmp_path / "state")
+    project = manager.register(repo)
+    base = manager.revision(repo)
+    workspace = manager.create_task_workspace(project, "run", "task", base)
+    (workspace / "src" / "café.txt").write_text("v2\n")
+    (workspace / "src" / "naïve.txt").write_text("new\n")
+    assert manager.enforce_scope(workspace, base, ["src"]) == ["src/café.txt", "src/naïve.txt"]
+
+
+def test_candidate_diff_tolerates_untracked_nested_repository(tmp_path: Path):
+    repo = make_repo(tmp_path / "repo")
+    manager = GitWorkspaceManager(tmp_path / "state")
+    project = manager.register(repo)
+    base = manager.revision(repo)
+    workspace = manager.create_task_workspace(project, "run", "task", base)
+    nested = workspace / "vendored"
+    nested.mkdir()
+    git(nested, "init", "-q")
+    (workspace / "added.txt").write_text("hello\n")
+    diff = manager.candidate_diff(workspace, base)
+    assert "+hello" in diff
+    assert "new untracked directory (not diffed): vendored/" in diff
+
+
+def test_cleanup_removes_stray_non_worktree_directories(tmp_path: Path):
+    repo = make_repo(tmp_path / "repo")
+    manager = GitWorkspaceManager(tmp_path / "state")
+    project = manager.register(repo)
+    manager.create_task_workspace(project, "run", "real", manager.revision(repo))
+    stray = manager.worktree_root / project.id / "run" / "half-created"
+    stray.mkdir()
+    (stray / "leftover.txt").write_text("x")
+    assert manager.remove_run_workspaces(project, "run") == ["half-created", "real"]
+    assert not (manager.worktree_root / project.id / "run").exists()

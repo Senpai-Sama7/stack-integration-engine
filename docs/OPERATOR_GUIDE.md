@@ -22,7 +22,9 @@ Start from `examples/local-review.json`. Unknown fields are rejected at every le
 fails planning instead of silently dropping a constraint. The top level has `objective`,
 `acceptance`, `tasks`, and optionally `scope_paths`, `checks`, and `budget`
 (`max_sessions`, `max_modifying_tasks`, `max_verification_jobs`, `wall_time_seconds`,
-`reported_cost_usd`). Every acceptance ID must be covered by at least one task. Each task has:
+`reported_cost_usd`). A spent budget stops dispatching model work and leaves the run `blocked`
+with a finding that says why; a run whose tasks are all verified still integrates, because
+integration spends no model quota. Every acceptance ID must be covered by at least one task. Each task has:
 
 - a stable ID and description;
 - `codex` or `claude` ownership;

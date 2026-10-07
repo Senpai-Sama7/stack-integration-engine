@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -157,10 +158,13 @@ class GitWorkspaceManager:
 
     def changed_paths(self, workspace: str | Path, base_revision: str) -> list[str]:
         """Repository-relative paths changed since ``base_revision`` (tracked + untracked)."""
-        output = self._git(
-            Path(workspace), "diff", "--name-only", "--no-renames", base_revision, "--"
-        )
-        return sorted(set(output.splitlines()) | set(self._untracked(Path(workspace))))
+        # NUL-separated output: without -z Git quotes and escapes unusual paths
+        # (non-ASCII, quotes), which would then fail scope comparison.
+        output = self._git_bytes(
+            Path(workspace), "diff", "--name-only", "-z", "--no-renames", base_revision, "--"
+        ).decode(errors="surrogateescape")
+        tracked = {item for item in output.split("\0") if item}
+        return sorted(tracked | set(self._untracked(Path(workspace))))
 
     def _untracked(self, root: Path) -> list[str]:
         output = self._git_bytes(root, "ls-files", "-z", "--others", "--exclude-standard")
@@ -199,6 +203,12 @@ class GitWorkspaceManager:
         root = Path(workspace)
         parts = [self._git_bytes(root, "diff", "--no-ext-diff", "--no-color", base_revision, "--")]
         for relative in sorted(self._untracked(root)):
+            target = root / relative
+            if target.is_dir() and not target.is_symlink():
+                # Untracked nested repositories are listed as directories; Git cannot
+                # diff a directory against /dev/null.
+                parts.append(f"new untracked directory (not diffed): {relative}\n".encode())
+                continue
             parts.append(
                 self._git_bytes(
                     root,
@@ -320,7 +330,12 @@ class GitWorkspaceManager:
         removed: list[str] = []
         if run_root.is_dir():
             for workspace in sorted(item for item in run_root.iterdir() if item.is_dir()):
-                self.remove_task_workspace(project, workspace)
+                try:
+                    self.remove_task_workspace(project, workspace)
+                except GitError:
+                    # Not a registered worktree (for example a creation that failed
+                    # half-way). It is inside the managed root, so delete it directly.
+                    shutil.rmtree(workspace)
                 removed.append(workspace.name)
             if not any(run_root.iterdir()):
                 run_root.rmdir()

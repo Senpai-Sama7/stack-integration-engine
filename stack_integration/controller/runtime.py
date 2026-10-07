@@ -1075,7 +1075,7 @@ class CollaborationController:
             current_run = self.database.get("run", run.id, Run)
             if current_run.status in {RunStatus.PAUSED, RunStatus.CANCELLED}:
                 return current_run
-            return await self._finish_run(run, budget_exhausted=exhausted is not None)
+            return await self._finish_run(run)
 
     def _dispatch_ready(
         self,
@@ -1109,7 +1109,10 @@ class CollaborationController:
         await asyncio.gather(*in_flight.values(), return_exceptions=True)
         in_flight.clear()
 
-    async def _finish_run(self, run: Run, *, budget_exhausted: bool) -> Run:
+    async def _finish_run(self, run: Run) -> Run:
+        # A budget only stops dispatching model work. Once every task is verified,
+        # integration (controller checks, no model spend) proceeds: otherwise a
+        # cumulative cost budget could leave a fully verified run unfinishable.
         run = self.database.get("run", run.id, Run)
         tasks = self.database.list("task", Task, project_id=run.project_id, run_id=run.id)
         covered_acceptance = {
@@ -1120,8 +1123,7 @@ class CollaborationController:
         }
         acceptance_satisfied = set(run.acceptance) <= covered_acceptance
         if (
-            not budget_exhausted
-            and acceptance_satisfied
+            acceptance_satisfied
             and tasks
             and all(task.status in {TaskStatus.VERIFIED, TaskStatus.INTEGRATED} for task in tasks)
         ):
@@ -1144,7 +1146,6 @@ class CollaborationController:
         else:
             if (
                 tasks
-                and not budget_exhausted
                 and not acceptance_satisfied
                 and all(
                     task.status in {TaskStatus.VERIFIED, TaskStatus.INTEGRATED} for task in tasks
