@@ -155,3 +155,12 @@ def test_checked_in_schemas_match_the_models():
         if (root / f"{model.__name__.lower()}.schema.json").read_text() != render_schema(model)
     ]
     assert not stale, f"regenerate with `stack-agent schemas docs/schemas`: {stale}"
+
+
+def test_serve_refuses_non_loopback_listeners(tmp_path: Path):
+    """The dashboard and API are local only: any non-loopback host is rejected by policy
+    before a server is started."""
+    for host in ("0.0.0.0", "192.168.1.20", "example.com"):
+        result = _invoke("serve", "--host", host, "--state", str(tmp_path / "state"))
+        assert result.exit_code == 2, (host, result.output)
+        assert "remote listeners are disabled" in result.output
