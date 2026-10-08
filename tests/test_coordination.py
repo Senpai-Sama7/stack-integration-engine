@@ -68,3 +68,48 @@ def test_submit_review_requires_matching_task_run(tmp_path: Path):
             )
     finally:
         controller.close()
+
+
+def test_review_for_a_stale_candidate_is_rejected(tmp_path: Path):
+    """A review is bound to one exact candidate hash. Once the candidate changes, a
+    review written against the old hash can no longer be recorded for the task."""
+    repo = tmp_path / "repo"
+    make_repo(repo)
+    controller = CollaborationController(Settings.load(tmp_path / "state"))
+    try:
+        run = controller.create_run(repo, "review", ["REQ-1"])
+        task = controller.add_tasks(
+            run.id, [{"id": "task-1", "description": "analyze", "provider": "codex"}]
+        )[0]
+        task.candidate_hash = "new-candidate"
+        controller.database.save_task(task, expected_revision=task.revision)
+        controller.policy.register_verified_grant(
+            Grant(
+                actor_id="reviewer",
+                project_id=run.project_id,
+                role=ActorRole.REVIEWER,
+                actions=frozenset({SideEffect.READ_ONLY}),
+                scope_paths=(".",),
+                provider=Provider.CLAUDE,
+            )
+        )
+
+        def review(candidate_hash: str) -> Review:
+            return Review(
+                id=f"review-{candidate_hash}",
+                project_id=run.project_id,
+                run_id=run.id,
+                task_id=task.id,
+                reviewer_id="reviewer",
+                reviewer_provider=Provider.CLAUDE,
+                author_provider=Provider.CODEX,
+                candidate_hash=candidate_hash,
+                verdict=Verdict.APPROVE,
+            )
+
+        with pytest.raises(ValueError, match="does not match the task's current candidate"):
+            controller.coordination.submit_review(review("old-candidate"))
+        controller.coordination.submit_review(review("new-candidate"))
+        assert controller.coordination.approved(task)
+    finally:
+        controller.close()

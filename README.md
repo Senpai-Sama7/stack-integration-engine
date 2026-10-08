@@ -1,141 +1,194 @@
-<div align="center">
+<p align="center">
+  <img src="docs/assets/hero.svg" alt="Stack Integration Engine: Codex and Claude Code as one bounded engineering team, reviewing each other's work under a controller that alone writes state" width="100%">
+</p>
 
-# Stack Integration Engine
+<p align="center">
+  <a href="https://github.com/Senpai-Sama7/stack-integration-engine/actions/workflows/ci.yml"><img src="https://github.com/Senpai-Sama7/stack-integration-engine/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue?logo=python&logoColor=white" alt="Python 3.11, 3.12, 3.13">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license">
+  <img src="https://img.shields.io/badge/network-loopback%20only-critical" alt="Network: loopback only">
+  <img src="https://img.shields.io/badge/failure%20mode-closed-important" alt="Failure mode: closed">
+</p>
 
-<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=20&pause=1200&color=58A6FF&center=true&vCenter=true&width=700&lines=Two+AI+engineers.+One+controller.;Opposite-provider+review%2C+enforced.;Fails+closed%2C+not+open.;Evidence%2C+not+narrative.;Zero+blind+trust." alt="Typing SVG" />
-
-[![CI](https://github.com/Senpai-Sama7/stack-integration-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Senpai-Sama7/stack-integration-engine/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Local first](https://img.shields.io/badge/network-loopback%20only-critical)
-![Fails closed](https://img.shields.io/badge/failure%20mode-closed-important)
-[![Stars](https://img.shields.io/github/stars/Senpai-Sama7/stack-integration-engine?style=social)](https://github.com/Senpai-Sama7/stack-integration-engine/stargazers)
-
-**Codex and Claude Code as one bounded engineering team — not two models you have to trust on faith.**
-
-[Why this exists](#why-you-would-want-this) ·
-[See it run](#see-it-run) ·
-[Quick start](#quick-start) ·
-[Command reference](#command-reference) ·
-[Trust model](#the-trust-model-plainly) ·
-[Docs](#documentation)
-
-</div>
+<p align="center">
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#see-it-work">See it work</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#command-reference">Commands</a> ·
+  <a href="#trust-model">Trust model</a> ·
+  <a href="#limits-you-should-know-about">Limits</a> ·
+  <a href="#documentation">Docs</a>
+</p>
 
 ---
 
-## Why you would want this
+Run one coding model alone and it grades its own homework. Run two by hand and you get no shared
+state, no enforced review, and a merge you accept on faith.
 
-Run Codex or Claude alone and one model marks its own homework. Run them in two terminals by
-hand and you get no shared state, no enforced review, no evidence trail, and a merge you have
-to trust on vibes.
+**Stack Integration Engine is the layer in between.** A local controller hands tasks to Codex and
+Claude Code, isolates each one in its own Git worktree, makes the *other* model review the result,
+runs its own checks, and integrates only when every gate holds. Nothing is integrated because a
+model said it was done. It is integrated because the evidence says so.
 
-Stack Integration Engine is the missing layer in between — and it is opinionated about it:
+| Principle | In practice |
+|---|---|
+| **Opposite-provider review** | Codex work is reviewed by Claude and the reverse, never by the same provider. A review is bound to the exact candidate hash it saw. |
+| **Isolated by construction** | Every modifying task runs in its own Git worktree with an allowed-path scope. Your checked-out branch is never touched. |
+| **Evidence, not narrative** | "Done" means a stored artifact, a review tied to a candidate hash, and a check log the controller ran itself. |
+| **Fails closed** | Missing tests, malformed output, stale leases, unavailable capabilities, and unknown fields all surface as visible failures, never as a green check. |
+| **Local-first** | It rides your existing `codex` and `claude` CLI logins and never asks for or stores provider credentials. The dashboard listens on loopback only. |
+| **You stay the operator** | Push, deploy, delete, and privilege changes are outside every worker grant. |
 
-<table>
-<tr>
-<td width="50%" valign="top">
+## How it works
 
-**🔁 Opposite-provider review, enforced**
-Codex's work is reviewed by Claude and vice versa — never by itself — bound to the exact
-candidate hash it was written against.
+<p align="center">
+  <img src="docs/assets/flow.svg" alt="Swimlane diagram of one task: the operator plans, the controller leases a worktree to a builder, freezes the candidate hash, the opposite provider reviews it, a verifier runs independent checks, and the controller integrates only if all gates hold" width="100%">
+</p>
 
-**🚫 Fails closed, not open**
-Earlier versions of this project quietly returned synthetic success. v0.2 doesn't: unavailable
-capabilities, malformed output, missing tests, stale leases, and unknown steps all surface as
-visible failures instead of green checkmarks.
+A task is integrated only when **all four** hold:
 
-**🌳 Isolated by construction**
-Every modifying task runs in its own Git worktree. Nothing touches your working tree until it
-has passed review, requirement coverage, and independent checks.
+1. **Approved** by the opposite provider,
+2. every acceptance requirement is **covered**,
+3. the controller's independent **checks pass** (and tests actually ran), and
+4. the candidate is **unchanged** since it was reviewed.
 
-</td>
-<td width="50%" valign="top">
+If any one fails, the run is `blocked` and nothing is integrated. On success the verified result is
+published as the branch `stack-agent/RUN_ID`. Your checkout is never modified; review and merge that
+branch like any other.
 
-**📜 Evidence, not narrative**
-Every claim of "done" is backed by a stored artifact, a review tied to a candidate hash, and a
-check log the controller ran itself — not a model's summary of what it did.
+| Role | Does | Never does |
+|---|---|---|
+| **Operator** (you) | Plans runs, steers, retries, merges the result branch | Delegate push, deploy, or delete (worker grants exclude them) |
+| **Controller** | Sole writer of state; leases tasks, builds worktrees, hashes candidates, runs checks, integrates | Treat provider prose as fact |
+| **Builder** (Codex or Claude) | Works inside a worktree and an allowed-path scope, returns structured output | Write state, widen its scope, push |
+| **Reviewer** (the other provider) | Reviews the exact candidate; returns a verdict and requirement coverage | Approve its own provider's work |
+| **Verifier** | Runs checks as controller-owned subprocesses with bounded, redacted logs | Pass a task when no tests ran |
 
-**🔒 Local-first, credential-free**
-No API keys handled or stored. It rides your existing `codex` and `claude` CLI logins and never
-leaves your machine unless you tell it to.
+Independent tasks run in parallel and dependents start the moment their prerequisites verify.
+Integration is serialized and cherry-picks in dependency order. Every task holds a fenced,
+heartbeat-renewed lease: if a writer goes quiet it loses the lease, and its task waits for you in
+`reconciling` instead of being silently re-run.
 
-**🧑‍✈️ You're still the operator**
-Push, deploy, delete, and privilege changes are denied by default and require you explicitly,
-every time.
-
-</td>
-</tr>
-</table>
-
-> If you've ever asked an AI coding agent "are you sure?" and gotten a confident answer you
-> couldn't verify — this is the tool that makes verification structural instead of hopeful.
-
----
-
-## See it run
-
-One task, start to finish — plan, dispatch, cross-review, verify, integrate:
+<details>
+<summary><b>Task lifecycle</b> (every legal transition, from <code>stack_integration/contracts/models.py</code>)</summary>
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant Op as Operator
-    participant Ctl as Controller
-    participant Cx as Codex (builder)
-    participant Cl as Claude (reviewer)
-    participant Ver as Verifier
-
-    Op->>Ctl: plan run.json
-    Ctl->>Ctl: validate DAG, freeze base revision
-    Ctl->>Cx: lease task, isolated worktree
-    activate Cx
-    Cx-->>Ctl: candidate + structured result
-    deactivate Cx
-    Ctl->>Ctl: freeze candidate hash
-    Ctl->>Cl: opposite-provider review request
-    activate Cl
-    Cl-->>Ctl: verdict + requirement coverage
-    deactivate Cl
-    Ctl->>Ver: run independent checks
-    activate Ver
-    Ver-->>Ctl: pass/fail + bounded logs
-    deactivate Ver
-    alt approved AND covered AND checks pass
-        Ctl->>Ctl: commit candidate, serialize integration
-        Ctl-->>Op: run COMPLETED + evidence report
-    else anything short
-        Ctl-->>Op: run BLOCKED, nothing integrated
-    end
+stateDiagram-v2
+    [*] --> proposed
+    proposed --> ready
+    proposed --> blocked
+    ready --> leased
+    ready --> blocked
+    leased --> running
+    leased --> reconciling
+    running --> submitted
+    running --> failed
+    running --> reconciling
+    submitted --> reviewing
+    submitted --> changes_requested
+    reviewing --> changes_requested
+    reviewing --> verified
+    reviewing --> awaiting_input
+    changes_requested --> ready
+    verified --> integrated
+    verified --> blocked
+    reconciling --> ready
+    reconciling --> awaiting_input
+    reconciling --> failed
+    blocked --> ready
+    awaiting_input --> ready
+    integrated --> [*]
+    failed --> [*]
 ```
 
-Same flow, structurally:
+`cancelled` is a terminal state reachable from `proposed`, `ready`, `leased`, `running`,
+`changes_requested`, `blocked`, and `awaiting_input`. Any other transition raises. A test keeps this
+diagram identical to the code.
 
-```mermaid
-flowchart LR
-    A[Operator plans a run] --> B{Task ready?}
-    B -- yes --> C[Controller leases + isolates]
-    C --> D[Builder provider works]
-    D --> E[Candidate hash frozen]
-    E --> F[Opposite provider reviews]
-    F --> G[Independent checks run]
-    G --> H{Approved AND covered AND passing?}
-    H -- yes --> I[Commit + serialize integration]
-    H -- no --> J[BLOCKED — nothing integrated]
-    I --> K[Evidence report]
-    J --> K
+</details>
+
+## See it work
+
+These captures are real output of the real controller, produced by
+[`examples/seed_demo.py`](examples/seed_demo.py). The providers in that script are deterministic
+simulators, so no model is called and no quota is spent, and every demo objective is prefixed
+`Demo:` so it can never be mistaken for evidence about real work. The seeded state has four runs
+that end four different ways.
+
+<p align="center">
+  <img src="docs/assets/dashboard.png" alt="Token-protected dashboard listing four demo runs (completed, blocked, failed, paused) with the completed run expanded to five integrated tasks" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/cli-runs.svg" alt="stack-agent runs: one completed, one blocked, one failed, and one paused run" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/cli-status.svg" alt="stack-agent status for the completed run: five integrated tasks across both providers and the result branch" width="90%">
+</p>
+
+The completed run surveyed the repository with Claude, then added input validation with Codex and a
+command line with Claude (independent tasks), wrote the docs with Codex, and had every task reviewed
+by the other provider. The blocked run is a
+reviewer that kept asking for changes. The failed run tried to write outside its allowed paths.
+Neither integrated anything.
+
+<details>
+<summary><b>Evidence report excerpt</b> (<code>stack-agent report RUN_ID</code>, abridged)</summary>
+
+```json
+{
+  "summary": {
+    "tasks": { "integrated": 5 },
+    "reviews": { "approve": 5 },
+    "checks": { "passed": 4 },
+    "reported_cost_usd": null
+  },
+  "reviews": [
+    {
+      "task_id": "survey-edge-cases",
+      "author_provider": "claude",
+      "reviewer_provider": "codex",
+      "candidate_hash": "21ac3104cb0f0a9a...",
+      "requirement_coverage": ["REQ-VALIDATION"],
+      "verdict": "approve"
+    }
+  ],
+  "checks": [
+    {
+      "task_id": "add-cli",
+      "definition_id": "pytest",
+      "status": "passed",
+      "exit_code": 0,
+      "tests_collected": 4,
+      "candidate_hash": "9aa80631ef1101b0..."
+    }
+  ],
+  "limitations": [
+    "Worktrees isolate changes but are not a security boundary.",
+    "Subscription quota is provider-reported when available; unknown is never treated as zero."
+  ]
+}
 ```
 
-The controller owns task assignment, state, grants, and integration. Providers own reasoning
-and bounded work products — never authority. Full detail: [Architecture](docs/ARCHITECTURE.md).
+Note the author and reviewer providers differ, each check names the candidate it ran against, and
+unknown cost stays `null` instead of becoming zero.
 
----
+</details>
+
+Reproduce it on your machine (after the install step in [Quick start](#quick-start)):
+
+```bash
+python examples/seed_demo.py --state /tmp/stack-agent-demo
+stack-agent runs  --state /tmp/stack-agent-demo
+stack-agent serve --state /tmp/stack-agent-demo     # token: /tmp/stack-agent-demo/operator.token
+```
 
 ## Quick start
 
-**Requirements:** Python 3.11+, Git 2.31+, and at least one supported provider CLI. For two-team
-operation, both `codex` and `claude` must already be authenticated through their normal login
-flows — this tool never asks for or stores credentials itself.
+**Requirements:** Python 3.11+, Git 2.31+, and at least one provider CLI. Two-team operation needs
+both `codex` and `claude` already authenticated through their normal login flows. This tool never
+asks for or stores credentials. It is not published on PyPI, so install from a clone.
 
 ```bash
 python3 -m venv .venv
@@ -143,17 +196,18 @@ python3 -m venv .venv
 .venv/bin/stack-agent doctor --project .
 ```
 
-`doctor` probes provider auth, NEXUS, and SDLC support and reports capability status without
-ever touching account email, org IDs, or tokens.
+`doctor` probes provider authentication, NEXUS, and SDLC support and reports each capability as
+`supported`, `degraded`, `unsupported`, or `untested`, without ever printing account email, org IDs,
+or tokens. Both providers should read `supported` before a two-team run.
 
-<details>
-<summary><b>▶ Run your first two-provider review</b> — click to expand</summary>
+**1. Plan** a run. This validates the task graph (unknown fields are rejected, every acceptance ID
+must be covered) and prints a run ID:
 
 ```bash
 .venv/bin/stack-agent plan examples/local-review.json .
 ```
 
-This prints a run ID. Execute it and inspect the result:
+**2. Run** it. This spends provider quota:
 
 ```bash
 .venv/bin/stack-agent run RUN_ID
@@ -161,147 +215,203 @@ This prints a run ID. Execute it and inspect the result:
 .venv/bin/stack-agent report RUN_ID --output run-report.json
 ```
 
-For a task that actually modifies files, set `side_effect` to `worktree_write` and constrain
-`allowed_paths` in your task spec. A confident narrative from the worker isn't enough to pass:
-you need a changed candidate, an opposite-provider approval, full requirement coverage, and
-passing independent checks — all four, every time.
+**3. Merge** the result. A completed modifying run publishes `stack-agent/RUN_ID` in your repository;
+review and merge it like any other branch, then `stack-agent cleanup RUN_ID` removes its worktrees.
 
-When a modifying run completes, the verified result is published as the branch
-`stack-agent/RUN_ID` in your repository. Your checked-out branch and working tree are never
-touched; review and merge that branch like any other.
+<details>
+<summary><b>A task that modifies files</b> (spec example)</summary>
+
+Set `side_effect` to `worktree_write` and constrain `allowed_paths`. Add `checks` when auto-detection
+is not enough. Check commands are operator-authorized code execution, so review them before planning
+against an unfamiliar repository.
+
+```json
+{
+  "objective": "Reject non-string input in slugify and cover it with tests",
+  "acceptance": ["REQ-TYPEERROR"],
+  "scope_paths": ["textkit", "tests"],
+  "checks": [
+    {
+      "id": "pytest",
+      "name": "Unit tests",
+      "command": ["python", "-m", "pytest", "-q"],
+      "timeout_seconds": 300,
+      "expects_tests": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "validate-input",
+      "description": "Raise a clear TypeError for non-string input and add tests for it.",
+      "provider": "codex",
+      "side_effect": "worktree_write",
+      "allowed_paths": ["textkit", "tests"],
+      "acceptance_ids": ["REQ-TYPEERROR"]
+    }
+  ]
+}
+```
+
+To pass, this task needs a changed candidate, an approval from Claude, full requirement coverage,
+and passing checks that actually collected tests. A confident narrative from the worker is not
+enough. Full format: [Operator guide](docs/OPERATOR_GUIDE.md#run-specification).
 
 </details>
 
 <details>
-<summary><b>🐳 Prefer a container?</b> — click to expand</summary>
+<summary><b>Container</b> (status API only)</summary>
 
-The container runs only the controller's status API — host CLI authentication is deliberately
-never copied into the image.
+The container runs only the controller's status API. Host CLI authentication is deliberately never
+copied into the image.
 
 ```bash
 docker compose up --build
 docker compose exec orchestrator sh -c 'cat /var/lib/stack-agent/operator.token'
 ```
 
-The host publishes only `127.0.0.1:8765`. Run actual model work through the host CLI unless
-you've built and independently reviewed your own credential/socket forwarding boundary.
+The host publishes only `127.0.0.1:8765`. Run model work through the host CLI unless you have built
+and independently reviewed your own credential and socket forwarding boundary.
 
 </details>
-
----
 
 ## Command reference
 
-<details open>
-<summary><b>Operator commands</b></summary>
+| Command | What it does |
+|---|---|
+| `doctor` | Probe providers, authentication, NEXUS, and SDLC; report capability status |
+| `project add PATH` | Register a Git repository, or a subdirectory of one, as a project |
+| `plan SPEC PROJECT` | Validate and persist a run and its task graph |
+| `run RUN_ID [--summary]` | Execute, cross-review, verify, and integrate (`--summary` prints just the run and its tallies) |
+| `runs` | List runs with status and task progress |
+| `status RUN_ID` | Show authoritative task states and the result branch |
+| `inspect KIND ID` | Dump a versioned record, for example `inspect task TASK_ID` |
+| `steer RUN_ID TEXT [--task TASK_ID]` | Add an operator instruction to later prompts |
+| `pause` / `resume` / `cancel` `RUN_ID` | Control dispatch; `cancel` stops in-flight provider processes |
+| `task retry\|cancel TASK_ID` | Recover a task stuck in `awaiting_input`, `blocked`, or `changes_requested` |
+| `report RUN_ID [--output FILE]` | Export evidence, reviews, checks, usage, and explicit limitations |
+| `cleanup RUN_ID` | Remove a finished run's worktrees (the result branch is kept) |
+| `backup DESTINATION` | Create a consistent SQLite backup |
+| `schemas DIRECTORY` | Generate the contract JSON Schemas |
+| `serve` | Run the token-protected dashboard and API on loopback |
+| `issue-grant ...` | Issue a short-lived signed MCP bridge token |
 
-```text
-doctor                     probe providers, authentication, NEXUS, and SDLC
-project add PATH           register a Git repository (or a subdirectory of one)
-plan SPEC PROJECT          validate and persist a run/task DAG (fails on unknown fields)
-run RUN_ID [--summary]     execute, cross-review, verify, and integrate
-runs                       list runs with status and task progress
-status RUN_ID              show authoritative task states and the result branch
-inspect KIND ID            inspect a versioned record
-steer RUN_ID TEXT          add an operator instruction to later prompts (--task to target one)
-pause/resume/cancel        control dispatch; cancel stops in-flight provider processes
-task retry|cancel TASK_ID  operator recovery for awaiting-input, blocked, or stuck tasks
-report RUN_ID              export evidence, a summary, and explicit limitations
-cleanup RUN_ID             remove a finished run's worktrees (the result branch is kept)
-backup DESTINATION         create a consistent SQLite backup
-schemas DIRECTORY          generate contract JSON Schemas
-serve                      run the token-protected loopback dashboard/API
-issue-grant                create a short-lived signed MCP bridge token
-```
+Global flags: `--version`, `--log-level DEBUG` (shows controller decisions as they happen).
 
-State defaults to `~/.local/state/stack-agent` — override with `--state` or
-`STACK_AGENT_STATE`. An optional `policy.json` in the state directory tunes concurrency, leases,
-timeouts, and retry limits (see the [operator guide](docs/OPERATOR_GUIDE.md#policy)). The dashboard
-defaults to `127.0.0.1:8765` and reads its token from `STATE/operator.token`; remote listeners are
-rejected by local policy, full stop. `--log-level DEBUG` shows controller decisions as they
-happen.
+State lives in `~/.local/state/stack-agent`; override with `--state` or `STACK_AGENT_STATE`. An
+optional `policy.json` in the state directory tunes concurrency, leases, timeouts, and attempt
+limits (see the [Operator guide](docs/OPERATOR_GUIDE.md#policy)). The dashboard defaults to
+`127.0.0.1:8765` and reads its token from `STATE/operator.token`.
 
-</details>
+## Trust model
 
----
+Everything a provider says is untrusted text until the controller verifies it. The guarantees below
+are the ones this project makes. Each lists where it is enforced and the tests that fail if it breaks.
 
-## The trust model, plainly
+- **A provider never approves its own work.** Enforced in [`contracts/models.py`](stack_integration/contracts/models.py).
+  - [`test_self_provider_review_is_rejected`](tests/test_contracts.py)
+- **A review only counts for the exact candidate it saw.** Enforced in [`coordination/service.py`](stack_integration/coordination/service.py).
+  - [`test_review_for_a_stale_candidate_is_rejected`](tests/test_coordination.py)
+- **At most one writer per task; stale writers lose.** Enforced in [`controller/scheduler.py`](stack_integration/controller/scheduler.py).
+  - [`test_two_claimers_get_exactly_one_lease`](tests/test_scheduler.py)
+  - [`test_stale_fencing_token_is_rejected`](tests/test_scheduler.py)
+  - [`test_expired_writer_enters_reconciliation`](tests/test_scheduler.py)
+- **A task is never marked verified before its candidate is committed.** Enforced in [`controller/scheduler.py`](stack_integration/controller/scheduler.py).
+  - [`test_candidate_commit_is_recorded_atomically_with_verification`](tests/test_scheduler.py)
+  - [`test_dependent_never_starts_between_verified_and_its_candidate_commit`](tests/test_runtime_flows.py)
+- **State and its event are written together or not at all.** Enforced in [`storage/database.py`](stack_integration/storage/database.py).
+  - [`test_state_and_outbox_are_written_together`](tests/test_storage.py)
+  - [`test_compare_and_swap_rejects_stale_revision`](tests/test_storage.py)
+- **"Passed" means tests actually ran.** Enforced in [`verification/runner.py`](stack_integration/verification/runner.py).
+  - [`test_no_collected_tests_does_not_pass`](tests/test_verification.py)
+  - [`test_nonzero_check_fails_with_artifact`](tests/test_verification.py)
+- **A worker cannot write outside its allowed paths.** Enforced in [`workspaces/git.py`](stack_integration/workspaces/git.py) and [`policy/engine.py`](stack_integration/policy/engine.py).
+  - [`test_worker_cannot_self_escalate_or_leave_scope`](tests/test_policy.py)
+  - [`test_subdirectory_project_rejects_writes_outside_it`](tests/test_runtime_flows.py)
+- **Reviewers see what the candidate really changed, new files included.** Enforced in [`workspaces/git.py`](stack_integration/workspaces/git.py).
+  - [`test_reviewer_diff_includes_new_untracked_files`](tests/test_runtime_flows.py)
+  - [`test_candidate_diff_is_constant_process_count_and_leaves_the_index_alone`](tests/test_workspace.py)
+- **Peer messages never grant push, deploy, or scope authority.** Enforced in [`policy/engine.py`](stack_integration/policy/engine.py).
+  - [`test_peer_cannot_gain_push_authority`](tests/test_policy.py)
+- **Bridge grants are signed, expiring, and scoped.** Enforced in [`bridge/server.py`](stack_integration/bridge/server.py).
+  - [`test_signed_bridge_grant_round_trip_and_tamper`](tests/test_bridge.py)
+  - [`test_task_claim_requires_builder_provider_and_scope`](tests/test_bridge.py)
+- **Failure never looks like success.** Enforced in [`providers/`](stack_integration/providers) and [`services/`](stack_integration/services).
+  - [`test_timeout_never_becomes_success`](tests/test_providers.py)
+  - [`test_provider_failure_states_never_complete`](tests/test_tools_and_services.py)
+  - [`test_compatibility_services_fail_closed`](tests/test_tools_and_services.py)
+  - [`test_completed_worker_without_structured_output_fails_task`](tests/test_runtime.py)
+  - [`test_malformed_reviewer_output_abstains_instead_of_crashing`](tests/test_runtime_flows.py)
+- **Malformed or unknown input is rejected, not ignored.** Enforced in [`contracts/models.py`](stack_integration/contracts/models.py).
+  - [`test_unknown_fields_are_rejected`](tests/test_contracts.py)
+  - [`test_invalid_transition_is_rejected`](tests/test_contracts.py)
+  - [`test_dependency_cycle_is_rejected`](tests/test_scheduler.py)
+- **A lost lease is never auto-requeued over a possibly live writer.** Enforced in [`controller/runtime.py`](stack_integration/controller/runtime.py).
+  - [`test_reconciling_task_awaits_operator_not_auto_requeued`](tests/test_runtime.py)
+- **Cancel stops in-flight provider work promptly.** Enforced in [`controller/runtime.py`](stack_integration/controller/runtime.py).
+  - [`test_operator_cancel_stops_in_flight_work_promptly`](tests/test_runtime_flows.py)
+- **The dashboard is loopback-only and token-protected.** Enforced in [`cli/main.py`](stack_integration/cli/main.py) and [`api/main.py`](stack_integration/api/main.py).
+  - [`test_serve_refuses_non_loopback_listeners`](tests/test_cli.py)
+  - [`test_api_requires_token_and_dashboard_has_no_state`](tests/test_api.py)
+  - [`test_dashboard_is_locked_down_with_hash_based_csp`](tests/test_api.py)
+- **Secrets are redacted from untrusted output, in linear time.** Enforced in [`security/redaction.py`](stack_integration/security/redaction.py).
+  - [`test_real_world_credential_formats_are_redacted`](tests/test_redaction.py)
+  - [`test_hostile_output_cannot_stall_redaction`](tests/test_redaction.py)
 
-```mermaid
-flowchart TB
-    subgraph Denied by default
-        Push[Push]
-        Deploy[Deploy]
-        Delete[Delete]
-        Priv[Privilege changes]
-    end
-    Op[Operator] -- explicit, per-action grant only --> Denied by default
-    Ctl[Controller] -- sole DB writer + authority source --> State[(SQLite WAL)]
-    Cx[Codex session] -- untrusted text --> Ctl
-    Cl[Claude session] -- untrusted text --> Ctl
-    Ctl -- signed, expiring grant --> Cx
-    Ctl -- signed, expiring grant --> Cl
-    Cx -. peer message: evidence only, never authority .-> Cl
-```
+Push, deploy, delete, privilege changes, policy mutation, and scope expansion are excluded from every
+worker grant. Full threat model: [Security](docs/SECURITY.md).
 
-- The controller is the **only** database writer and authority source. Everything a provider
-  says is untrusted text until the controller verifies it.
-- A reviewer can never approve its own provider's work — review and check are always bound to
-  one exact candidate hash and go stale the moment that candidate changes.
-- Peer messages between providers can never grant push, deploy, delete, privilege, policy, or
-  scope authority — messages are evidence, not permission.
-- Git worktrees prevent accidental overlap between tasks, but they are **not** a security
-  sandbox — provider-native permission controls stay on regardless.
-- Push, deploy, destructive operations, and credential changes sit outside the default grant
-  set. You opt in explicitly, per action.
+## Limits you should know about
 
-Read the full threat model: [docs/SECURITY.md](docs/SECURITY.md).
+This is a local, single-operator tool. Read these before relying on it.
 
----
+- **Worktrees are not a sandbox.** They stop tasks from overlapping, not from misbehaving. A provider
+  process still runs as your OS user, so provider-native permission controls matter and stay on.
+- **Verification commands are code execution.** A malicious repository can target the toolchain a
+  check runs. Review check definitions before planning against code you do not trust.
+- **Local tokens can be stolen** by another process running as the same OS user.
+- **Not multi-tenant, not for the network.** Do not expose the dashboard or bridge on a network or
+  share one state directory between users. `serve` rejects non-loopback hosts.
+- **Redaction is pattern matching, not a guarantee.** Scan reports and artifact directories before
+  sharing them.
+- **Cost and quota are provider-reported.** Unknown stays `null` and is never counted as zero.
+- **Claude's interactive agent teams are not used.** Claude runs in print mode.
+- **Live-provider behavior is tested separately.** The deterministic suite never spends quota;
+  provider availability and subscriptions are outside this repository's control.
 
 ## Documentation
 
-| Doc | What's in it |
+| Doc | What is in it |
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | Control flow, lifecycle, storage model |
-| [Operator guide](docs/OPERATOR_GUIDE.md) | Day-to-day operation, walk-throughs |
+| [Operator guide](docs/OPERATOR_GUIDE.md) | Day-to-day operation, run specification, policy |
 | [Contracts and state machine](docs/CONTRACTS.md) | Every record type and legal transition |
-| [Security and threat model](docs/SECURITY.md) | What's trusted, what isn't, and why |
+| [Security and threat model](docs/SECURITY.md) | What is trusted, what is not, residual risks |
 | [Recovery exercises](docs/RECOVERY.md) | What to do when something goes wrong |
-| [Compatibility matrix](docs/COMPATIBILITY.md) | Supported provider CLI versions/flags |
-| [Implementation status](docs/IMPLEMENTATION_PLAN.md) | What's built vs. planned |
+| [Compatibility matrix](docs/COMPATIBILITY.md) | Supported provider CLI versions and flags |
+| [Implementation status](docs/IMPLEMENTATION_PLAN.md) | What is built and what is planned |
 | [Live provider probe](docs/evidence/live-provider-probe.json) | Real capability probe output |
 | [Changelog](CHANGELOG.md) | What changed in each release |
-| [Project Aurora](project_aurora/README.md) | Example Godot project and the plan that drives it |
-
----
+| [Project Aurora](project_aurora/README.md) | An example Godot project, and the plan that drives it |
 
 ## Verify it yourself
-
-Don't take the pitch on faith — the whole point of this project is that you shouldn't have to.
 
 ```bash
 .venv/bin/ruff check stack_integration tests
 .venv/bin/ruff format --check stack_integration tests
 .venv/bin/mypy stack_integration
-.venv/bin/pytest --cov=stack_integration --cov-report=term-missing   # gate: 80% branch coverage
+.venv/bin/pytest --cov=stack_integration --cov-report=term-missing   # gate: 80% coverage
 ```
 
-The deterministic suite exercises every controller invariant without spending model quota. CI
-also builds and installs the wheel in isolation, smoke-tests the container's health and
-authentication, and runs the Project Aurora Godot suite headless.
-Live-provider checks are kept separate because provider availability and subscription quota are
-conditions outside this repo's control.
+The deterministic suite exercises every controller invariant without spending model quota. CI runs it
+on Python 3.11, 3.12, and 3.13, builds and installs the wheel in isolation, smoke-tests the
+container, and runs the Project Aurora Godot suite headless. This README is tested too:
+[`tests/test_readme.py`](tests/test_readme.py) fails if a link or image breaks, if a documented
+command does not exist, if a test cited above disappears, or if the lifecycle diagram drifts from the
+code.
 
 ---
 
-<div align="center">
-
-### License
-
-MIT — see [LICENSE](LICENSE).
-
-<sub>Built for people who want two AI engineers working for them — not one AI engineer
-grading its own test.</sub>
-
-</div>
+<p align="center">
+  <b>License:</b> MIT, see <a href="LICENSE">LICENSE</a>.<br>
+  <sub>Two AI engineers working for you, instead of one grading its own test.</sub>
+</p>

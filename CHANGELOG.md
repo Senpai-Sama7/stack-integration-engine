@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- **README rewrite.** New hero and run-lifecycle diagrams, real dashboard and CLI captures, a task
+  lifecycle diagram, a guarantee table that links every claim to the code that enforces it and the
+  tests that prove it, a command reference, and an explicit limits section. Screenshots and the
+  evidence excerpt come from `examples/seed_demo.py`, which seeds four runs (completed, blocked,
+  failed, paused) through the real controller with deterministic simulated providers, so anyone can
+  reproduce them without spending quota.
+- `tests/test_readme.py` fails when a README link, image, anchor, command, cited test, example spec,
+  or the lifecycle diagram stops matching the repository.
+- Two new proof tests: a review of a stale candidate is rejected, and `serve` refuses non-loopback
+  hosts.
+
+### Changed
+
+- `status` titles its table `RUN_ID: status` instead of using an em dash.
+
 ## 0.3.0 (2026-10-07)
 
 ### Fixed

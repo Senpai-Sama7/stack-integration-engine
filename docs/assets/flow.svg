@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1088 540" width="1088" height="540" role="img" aria-labelledby="t d">
+<title id="t">Run lifecycle</title>
+<desc id="d">Swimlane diagram. The operator plans a run. The controller leases a task and a worktree to a builder provider, freezes the candidate hash, and asks the opposite provider to review it. A verifier runs independent checks. The controller integrates only when the candidate is approved, covers every requirement, passes its checks, and is unchanged. A failed gate blocks the run and integrates nothing.</desc>
+<defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 z" fill="#8b949e"/></marker><marker id="ag" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 z" fill="#3fb950"/></marker><marker id="aa" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 z" fill="#d29922"/></marker></defs>
+<rect width="1088" height="540" rx="14" fill="#0d1117"/>
+<rect x="0.5" y="0.5" width="1087" height="539" rx="14" fill="none" stroke="#30363d"/>
+<rect x="24" y="76" width="1040" height="78" fill="#11161d"/>
+<rect x="24" y="76" width="4" height="78" fill="#bc8cff"/>
+<text x="42" y="112.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#e6edf3">Operator</text>
+<text x="42" y="132.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8b949e">you</text>
+<rect x="24" y="154" width="1040" height="78" fill="#0d1117"/>
+<rect x="24" y="154" width="4" height="78" fill="#58a6ff"/>
+<text x="42" y="190.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#e6edf3">Controller</text>
+<text x="42" y="210.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8b949e">sole writer</text>
+<rect x="24" y="232" width="1040" height="78" fill="#11161d"/>
+<rect x="24" y="232" width="4" height="78" fill="#39d0c0"/>
+<text x="42" y="268.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#e6edf3">Builder</text>
+<text x="42" y="288.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8b949e">Codex or Claude</text>
+<rect x="24" y="310" width="1040" height="78" fill="#0d1117"/>
+<rect x="24" y="310" width="4" height="78" fill="#f0883e"/>
+<text x="42" y="346.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#e6edf3">Reviewer</text>
+<text x="42" y="366.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8b949e">opposite provider</text>
+<rect x="24" y="388" width="1040" height="78" fill="#11161d"/>
+<rect x="24" y="388" width="4" height="78" fill="#d29922"/>
+<text x="42" y="424.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#e6edf3">Verifier</text>
+<text x="42" y="444.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8b949e">run by controller</text>
+<line x1="24" y1="76" x2="1064" y2="76" stroke="#30363d"/>
+<line x1="24" y1="466" x2="1064" y2="466" stroke="#30363d"/>
+<line x1="158" y1="76" x2="158" y2="466" stroke="#30363d"/>
+<text x="24" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#e6edf3">One task, from plan to integrated branch</text>
+<text x="1064" y="42" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#8b949e">time flows left to right</text>
+<path d="M226 144.0 V185.0 Q226 193.0 234 193.0 H292.0" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#ar)"/>
+<path d="M354 222.0 V263.0 Q354 271.0 362 271.0 H420.0" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#ar)"/>
+<path d="M482 242.0 V201.0 Q482 193.0 490 193.0 H548.0" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#ar)"/>
+<path d="M610 222.0 V341.0 Q610 349.0 618 349.0 H676.0" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#ar)"/>
+<path d="M738 378.0 V419.0 Q738 427.0 746 427.0 H804.0" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#ar)"/>
+<path d="M866 398.0 V201.0 Q866 193.0 874 193.0 H932.0" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#ar)"/>
+<path d="M994 164.0 V145.0" fill="none" stroke="#3fb950" stroke-width="1.8" marker-end="url(#ag)"/>
+<path d="M738 320.0 V279.0 Q738 271.0 730 271.0 H544.0" fill="none" stroke="#d29922" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#aa)"/>
+<text x="752" y="275.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#d29922">changes requested: retry with the findings</text>
+<rect x="165.0" y="86.0" width="122" height="58" rx="9" fill="#161b22" stroke="#bc8cff" stroke-width="1.6"/>
+<circle cx="165.0" cy="86.0" r="11" fill="#bc8cff"/>
+<text x="165.0" y="90.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0d1117">1</text>
+<text x="226" y="112.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#e6edf3">plan</text>
+<text x="226" y="130.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8b949e">validate + freeze</text>
+<rect x="293.0" y="164.0" width="122" height="58" rx="9" fill="#161b22" stroke="#58a6ff" stroke-width="1.6"/>
+<circle cx="293.0" cy="164.0" r="11" fill="#58a6ff"/>
+<text x="293.0" y="168.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0d1117">2</text>
+<text x="354" y="190.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#e6edf3">lease</text>
+<text x="354" y="208.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8b949e">token + worktree</text>
+<rect x="421.0" y="242.0" width="122" height="58" rx="9" fill="#161b22" stroke="#39d0c0" stroke-width="1.6"/>
+<circle cx="421.0" cy="242.0" r="11" fill="#39d0c0"/>
+<text x="421.0" y="246.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0d1117">3</text>
+<text x="482" y="268.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#e6edf3">build</text>
+<text x="482" y="286.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8b949e">isolated candidate</text>
+<rect x="549.0" y="164.0" width="122" height="58" rx="9" fill="#161b22" stroke="#58a6ff" stroke-width="1.6"/>
+<circle cx="549.0" cy="164.0" r="11" fill="#58a6ff"/>
+<text x="549.0" y="168.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0d1117">4</text>
+<text x="610" y="190.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#e6edf3">freeze</text>
+<text x="610" y="208.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8b949e">hash the candidate</text>
+<rect x="677.0" y="320.0" width="122" height="58" rx="9" fill="#161b22" stroke="#f0883e" stroke-width="1.6"/>
+<circle cx="677.0" cy="320.0" r="11" fill="#f0883e"/>
+<text x="677.0" y="324.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0d1117">5</text>
+<text x="738" y="346.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#e6edf3">review</text>
+<text x="738" y="364.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8b949e">bound to the hash</text>
+<rect x="805.0" y="398.0" width="122" height="58" rx="9" fill="#161b22" stroke="#d29922" stroke-width="1.6"/>
+<circle cx="805.0" cy="398.0" r="11" fill="#d29922"/>
+<text x="805.0" y="402.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0d1117">6</text>
+<text x="866" y="424.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#e6edf3">verify</text>
+<text x="866" y="442.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8b949e">independent checks</text>
+<rect x="933.0" y="164.0" width="122" height="58" rx="9" fill="#161b22" stroke="#58a6ff" stroke-width="1.6"/>
+<circle cx="933.0" cy="164.0" r="11" fill="#58a6ff"/>
+<text x="933.0" y="168.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0d1117">7</text>
+<text x="994" y="190.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#e6edf3">gate</text>
+<text x="994" y="208.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8b949e">all four must hold</text>
+<rect x="933.0" y="86.0" width="122" height="58" rx="9" fill="#161b22" stroke="#bc8cff" stroke-width="1.6"/>
+<circle cx="933.0" cy="86.0" r="11" fill="#bc8cff"/>
+<text x="933.0" y="90.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0d1117">8</text>
+<text x="994" y="112.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16.5" font-weight="600" fill="#e6edf3">report</text>
+<text x="994" y="130.0" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#8b949e">evidence + branch</text>
+<text x="24" y="492" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#3fb950">Integrate only when</text>
+<rect x="174" y="475" width="226" height="26" rx="13" fill="#0f2417" stroke="#238636"/>
+<text x="287" y="492.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#7ee787">approved by the other provider</text>
+<rect x="408.0" y="475" width="193" height="26" rx="13" fill="#0f2417" stroke="#238636"/>
+<text x="504" y="492.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#7ee787">every requirement covered</text>
+<rect x="609.0" y="475" width="180" height="26" rx="13" fill="#0f2417" stroke="#238636"/>
+<text x="699" y="492.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#7ee787">independent checks pass</text>
+<rect x="796.8" y="475" width="239" height="26" rx="13" fill="#0f2417" stroke="#238636"/>
+<text x="916" y="492.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#7ee787">candidate unchanged since review</text>
+<text x="24" y="522" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#8b949e">Otherwise the run is <tspan fill="#f85149" font-weight="600">BLOCKED</tspan> and nothing is integrated. Success publishes <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#c9d1d9">refs/heads/stack-agent/&lt;run&gt;</tspan>; your branch is never touched.</text>
+</svg>

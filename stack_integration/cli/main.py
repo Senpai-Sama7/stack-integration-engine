@@ -308,7 +308,7 @@ def status(run_id: str, state: StateOption = None) -> None:
         with _operator_errors():
             run = controller.database.get("run", run_id, Run)
             tasks = controller.database.list("task", Task, project_id=run.project_id, run_id=run.id)
-            table = Table(title=f"{run.id} — {run.status.value}")
+            table = Table(title=f"{run.id}: {run.status.value}")
             table.add_column("Task", no_wrap=True)
             table.add_column("Provider")
             table.add_column("Side effect")

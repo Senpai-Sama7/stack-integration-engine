@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-labelledby="t d">
+<title id="t">Stack Integration Engine</title>
+<desc id="d">Codex and Claude Code review each other's work under a controller that alone writes state. The controller integrates a verified result onto a stack-agent branch.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#101b2d"/></linearGradient>
+<pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#58a6ff" fill-opacity="0.10"/></pattern>
+<marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 z" fill="#8b949e"/></marker>
+<marker id="g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 z" fill="#3fb950"/></marker>
+</defs>
+<rect width="1200" height="300" rx="16" fill="url(#bg)"/>
+<rect width="1200" height="300" rx="16" fill="url(#dots)"/>
+<rect x="0.5" y="0.5" width="1199" height="299" rx="16" fill="none" stroke="#30363d"/>
+
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="84" font-size="13" font-weight="600" letter-spacing="2.2" fill="#58a6ff">LOCAL-FIRST  ·  FAILS CLOSED  ·  EVIDENCE OVER NARRATIVE</text>
+<text x="62" y="152" font-size="54" font-weight="700" fill="#f0f6fc">Stack Integration Engine</text>
+<text x="64" y="195" font-size="22" fill="#c9d1d9">Codex and Claude Code as one bounded engineering team.</text>
+<text x="64" y="229" font-size="16" fill="#8b949e">Cross-reviewed by the other model. Verified independently. Integrated only on evidence.</text>
+
+<!-- providers review each other -->
+<rect x="820" y="62" width="128" height="46" rx="10" fill="#161b22" stroke="#39d0c0" stroke-width="1.8"/>
+<text x="884" y="91" text-anchor="middle" font-size="17" font-weight="600" fill="#e6edf3">Codex</text>
+<rect x="820" y="186" width="128" height="46" rx="10" fill="#161b22" stroke="#f0883e" stroke-width="1.8"/>
+<text x="884" y="215" text-anchor="middle" font-size="17" font-weight="600" fill="#e6edf3">Claude Code</text>
+<path d="M856 112 V182" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M912 182 V112" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="884" y="152" text-anchor="middle" font-size="12" fill="#8b949e">review</text>
+
+<!-- controller -->
+<path d="M948 85 H956 Q968 85 968 97 V138 Q968 150 980 150 H989" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M948 209 H956 Q968 209 968 197 V162 Q968 150 980 150 H989" fill="none" stroke="#8b949e" stroke-width="1.8" marker-end="url(#a)"/>
+<rect x="990" y="124" width="162" height="52" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="1.8"/>
+<text x="1071" y="147" text-anchor="middle" font-size="17" font-weight="600" fill="#e6edf3">Controller</text>
+<text x="1071" y="165" text-anchor="middle" font-size="12" fill="#8b949e">sole writer of state</text>
+<path d="M1071 176 V206" fill="none" stroke="#3fb950" stroke-width="1.8" marker-end="url(#g)"/>
+<rect x="990" y="210" width="162" height="30" rx="15" fill="#0f2417" stroke="#238636"/>
+<text x="1071" y="230" text-anchor="middle" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#7ee787">stack-agent/run_…</text>
+</g>
+</svg>
